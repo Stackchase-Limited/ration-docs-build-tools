@@ -25,7 +25,7 @@ def make():
   base.check_module_version("2", clear_module)
   os.chdir(old_cur_dir)
 
-  scripts_dir = os.path.abspath(base.get_script_dir() + "/..")
+  scripts_dir = os.path.abspath(base.get_script_dir() + "/../..")
   base.cmd_in_dir(base_dir, "env", ["PYTHONPATH=" + scripts_dir, "python", "fetch.py"])
   return
 
