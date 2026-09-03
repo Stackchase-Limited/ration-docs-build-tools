@@ -12,6 +12,7 @@ python3 ./configure.py \
   --module desktop \
   --platform mac_arm64 \
   --branch "$UPSTREAM_BRANCH" \
+  --git-protocol https \
   --update 1 \
   --clean 1
 python3 ./make.py

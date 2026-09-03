@@ -563,22 +563,29 @@ def git_get_origin():
   os.chdir(cur_dir)
   return ret
 
+def git_get_upstream():
+  cur_dir = os.getcwd()
+  os.chdir(get_script_dir() + "/../")
+  ret = run_command("git config --get remote.upstream.url")["stdout"]
+  os.chdir(cur_dir)
+  return ret
+
 def git_get_base_url():
-  """Get the base URL for git operations, with fallback to GitHub"""
-  origin = git_get_origin()
-  if origin:
-    # Extract base URL from origin
-    if origin.startswith("https://"):
+  """Get the component source base URL, preferring the read-only upstream."""
+  source = git_get_upstream() or git_get_origin()
+  if source:
+    # Extract base URL from the configured upstream.
+    if source.startswith("https://"):
       # For HTTPS URLs like https://git.example.com/owner/repo.git
-      parts = origin.split("/")
+      parts = source.split("/")
       if len(parts) >= 4:
         return "/".join(parts[:3]) + "/"
-    elif ":" in origin and "@" in origin:
+    elif ":" in source and "@" in source:
       # For SSH URLs like git@git.example.com:owner/repo.git
-      at_pos = origin.find("@")
-      colon_pos = origin.find(":", at_pos)
+      at_pos = source.find("@")
+      colon_pos = source.find(":", at_pos)
       if at_pos != -1 and colon_pos != -1:
-        host = origin[at_pos+1:colon_pos]
+        host = source[at_pos+1:colon_pos]
         return f"https://{host}/"
 
   # Fallback to GitHub

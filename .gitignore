@@ -1,4 +1,6 @@
 out/
+build-macos-arm64.log
+build-macos-arm64.pid
 makefiles/
 .qmake.stash
 config
