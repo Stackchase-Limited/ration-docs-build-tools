@@ -25,15 +25,14 @@ def make(use_gperf = True):
   base.check_module_version("4", clear_module)
   os.chdir(old_cur_dir)
 
-  cmd_args = ["fetch.py"]
+  cmd_args = ["PYTHONPATH=" + base.get_script_dir(), "python", "fetch.py"]
 
   if use_gperf:
     cmd_args.append("--gperf")
 
-  base.cmd_in_dir(base_dir, "python", cmd_args)
+  base.cmd_in_dir(base_dir, "env", cmd_args)
   return
 
 if __name__ == '__main__':
   # manual compile
   make(False)
-
