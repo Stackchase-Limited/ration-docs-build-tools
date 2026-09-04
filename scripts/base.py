@@ -777,6 +777,7 @@ def qt_setup(platform):
   # Homebrew provides macOS Qt as a single prefix rather than compiler-named
   # subdirectories used by the upstream Qt archives.
   if host_platform() == "mac" and is_file(qt_dir + "/bin/qmake"):
+    set_env("QT_DEPLOY", qt_dir)
     return qt_dir
 
   # qt bug
