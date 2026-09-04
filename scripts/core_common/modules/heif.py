@@ -194,6 +194,12 @@ def make_x265(base_dir, build_type):
       "endif()\n    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../x265Version.txt)"
     )
 
+  # CMake 4 no longer accepts OLD policy modes used by this pinned x265 tree.
+  x265_cmake = base_dir + "/x265_git/source/CMakeLists.txt"
+  base.replaceInFile(x265_cmake, "cmake_policy(SET CMP0025 OLD)", "# CMP0025 OLD is unsupported by CMake 4")
+  base.replaceInFile(x265_cmake, "cmake_policy(SET CMP0054 OLD)", "# CMP0054 OLD is unsupported by CMake 4")
+  base.replaceInFile(x265_cmake, "cmake_minimum_required (VERSION 2.8.8)", "cmake_minimum_required (VERSION 3.5...3.31)")
+
   # prepare cmake args
   cmake_dir = base_dir + "/x265_git/source"
   cmake_args = [
