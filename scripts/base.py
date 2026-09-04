@@ -774,6 +774,11 @@ def qt_setup(platform):
   compiler = config.check_compiler(platform)
   qt_dir = config.option("qt-dir") if (-1 == platform.find("_xp")) else config.option("qt-dir-xp")
 
+  # Homebrew provides macOS Qt as a single prefix rather than compiler-named
+  # subdirectories used by the upstream Qt archives.
+  if host_platform() == "mac" and is_file(qt_dir + "/bin/qmake"):
+    return qt_dir
+
   # qt bug
   if (host_platform() == "mac"):
     for compiler_folder in glob.glob(qt_dir + "/*"):

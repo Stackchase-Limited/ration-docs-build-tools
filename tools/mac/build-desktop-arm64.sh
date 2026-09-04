@@ -22,6 +22,7 @@ done < "$LOCK_FILE"
 python3 ./configure.py \
   --module desktop \
   --platform mac_arm64 \
+  --qt-dir /opt/homebrew/opt/qt@5 \
   --branch "$UPSTREAM_BRANCH" \
   --git-protocol https \
   --update 0 \
