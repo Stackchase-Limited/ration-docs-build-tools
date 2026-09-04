@@ -814,6 +814,11 @@ def qt_setup(platform):
 
 def qt_version():
   qt_dir = get_env("QT_DEPLOY")
+  qmake = qt_dir + "/bin/qmake"
+  if is_file(qmake):
+    version = run_command(qmake + " -query QT_VERSION")['stdout']
+    if version:
+      return version
   qt_dir = qt_dir.split("/")[-3]
   return "".join(i for i in qt_dir if (i.isdigit() or i == "."))
 
