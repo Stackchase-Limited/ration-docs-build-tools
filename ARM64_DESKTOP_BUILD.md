@@ -11,16 +11,27 @@ supports the `linux_arm64` target and supplies ARM64 Qt and sysroot inputs.
 
 ## Stock 9.4 verification build
 
+> **This path is not currently runnable as written, and has not been verified.**
+> `tools/linux/build-desktop-arm64-docker.sh` has never existed in this
+> repository, and neither has the `automate.py` it is said to invoke. Treat the
+> commands below as a description of intent, not instructions.
+>
+> For a build that does work today, see `MACOS_ARM64_DESKTOP_BUILD.md`, which
+> drives `build_tools/make.py` directly. The same approach should port to
+> `linux_arm64` by setting `platform` in `build_tools/config`, but that has not
+> been tried.
+
 From the root of this repository, run:
 
 ```bash
-./tools/linux/build-desktop-arm64-docker.sh
+./tools/linux/build-desktop-arm64-docker.sh   # missing - see note above
 ```
 
-The wrapper builds a native `linux/arm64` Ubuntu image and invokes:
+The wrapper was intended to build a native `linux/arm64` Ubuntu image and
+invoke:
 
 ```bash
-python3 ./automate.py desktop --branch=release/v9.4.0
+python3 ./automate.py desktop --branch=release/v9.4.0   # missing
 ```
 
 It intentionally uses the upstream release branch, not `ration/9.4`: the
