@@ -146,6 +146,73 @@ def check(root):
     return failures
 
 
+
+def dependencies(path):
+    """Libraries this module asks the loader for, by basename."""
+    out = set()
+    if MACHO:
+        try:
+            r = subprocess.run(['otool', '-L', path], capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.SubprocessError):
+            return out
+        for ln in r.stdout.splitlines()[1:]:
+            ln = ln.strip()
+            if not ln:
+                continue
+            name = ln.split(' ')[0]
+            out.add(os.path.basename(name.split('/')[-1]))
+        return out
+    try:
+        r = subprocess.run(['objdump', '-p', path], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return out
+    for ln in r.stdout.splitlines():
+        ln = ln.strip()
+        if ln.startswith('NEEDED'):
+            out.add(ln.split()[-1])
+    return out
+
+
+def check_libraries(root):
+    """Return [(module, dependency)] for Qt libraries we ship a family of but not this one.
+
+    ONLYOFFICE/DesktopEditors#2274: qt_copy_plugin copies a plugin directory wholesale
+    while the Qt libraries are an explicit list, so the payload shipped a virtual
+    keyboard plugin needing QtQml, QtQmlModels, QtQuick and QtVirtualKeyboard - none of
+    them bundled. On a machine with system Qt5 the loader satisfies those from the
+    system, they link the system QtCore, and the process ends up holding two QtCores.
+
+    Restricted to Qt because Qt is the one framework this payload bundles wholesale and
+    must therefore bundle completely; everything else is deliberately taken from the
+    system and is not ours to resolve.
+    """
+    shipped = set()
+    modules = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for name in filenames:
+            p = os.path.join(dirpath, name)
+            shipped.add(name)
+            if is_module(p):
+                modules.append(p)
+                # A framework's binary has no extension; record its bundle name too.
+                shipped.add(os.path.basename(os.path.dirname(dirpath)).replace('.framework', ''))
+
+    def isQt(dep):
+        base = dep.replace('lib', '', 1) if dep.startswith('lib') else dep
+        return base.startswith('Qt')
+
+    failures = []
+    for p in sorted(modules):
+        for dep in sorted(dependencies(p)):
+            if not isQt(dep):
+                continue
+            stem = dep.replace('lib', '', 1) if dep.startswith('lib') else dep
+            stem = stem.split('.')[0]
+            if stem in shipped or dep in shipped:
+                continue
+            failures.append((os.path.relpath(p, root), dep))
+    return failures
+
 def main(argv):
     if not argv or argv[0] in ('-h', '--help'):
         print(__doc__)
@@ -166,9 +233,20 @@ def main(argv):
     print('checked %d modules, %d exported symbols, %d namespaces of ours'
           % (nmod, ndef, nns))
 
-    if not failures:
+    libs = check_libraries(root)
+    if libs:
+        print('\n%d Qt library dependencie(s) the payload does not ship:' % len(libs))
+        for mod, dep in libs:
+            print('  %s\n      needs %s' % (mod, dep))
+        print('\nThis is the #2274 failure mode: a plugin copied in wholesale whose Qt\n'
+              'libraries are not on the explicit list. It cannot load from the bundle, and\n'
+              'on a machine with system Qt it loads a second copy of Qt into the process.')
+
+    if not failures and not libs:
         print('ok - every import of ours is satisfied inside the payload')
         return 0
+    if not failures:
+        return 1
 
     print('\n%d unresolved import(s) of our own symbols:' % len(failures))
     for mod, ns, s in failures:

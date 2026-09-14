@@ -159,6 +159,28 @@ def make():
       base.qt_copy_lib("Qt5Network", root_dir)
       base.qt_copy_lib("Qt5OpenGL", root_dir)
 
+      # ONLYOFFICE/DesktopEditors#2274. qt_copy_plugin copies a plugin directory
+      # wholesale, but the Qt libraries here are an explicit list - and
+      # platforminputcontexts contains the virtual keyboard, which needs Qt Quick. It
+      # was on neither list, so the payload shipped a plugin that could not load from
+      # its own bundle: dead weight on a machine with no system Qt5, and on a machine
+      # that has one the loader satisfied QtQml and QtQuick from the system, those
+      # linked the system QtCore, and the process ended up holding two QtCores - the
+      # #1748 shape, which aborts.
+      #
+      # Qt Quick is not just these four libraries: `import QtQuick 2.x` is resolved
+      # through the QML import path, which is compiled into Qt as a path on the build
+      # machine. The qml trees below are what those imports actually resolve against,
+      # and main.cpp points QML2_IMPORT_PATH at them.
+      base.qt_copy_lib("Qt5Qml", root_dir)
+      base.qt_copy_lib("Qt5QmlModels", root_dir)
+      base.qt_copy_lib("Qt5Quick", root_dir)
+      base.qt_copy_lib("Qt5VirtualKeyboard", root_dir)
+
+      base.qt_copy_qml("QtQml", root_dir)
+      base.qt_copy_qml("QtQuick.2", root_dir)
+      base.qt_copy_qml("QtQuick", root_dir)
+
       base.qt_copy_plugin("bearer", root_dir)
       base.qt_copy_plugin("iconengines", root_dir)
       base.qt_copy_plugin("imageformats", root_dir)

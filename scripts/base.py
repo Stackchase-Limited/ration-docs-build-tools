@@ -1016,6 +1016,29 @@ def qt_copy_plugin(name, out):
       delete_file(file)
   return
 
+def qt_copy_qml(name, out):
+  """Copy one QML import subtree (e.g. "QtQuick.2") next to the executable.
+
+  ONLYOFFICE/DesktopEditors#2274. Qt Quick resolves `import QtQuick 2.x` through the
+  QML import path, which is compiled into Qt as the path on the machine that built it.
+  Shipping the Qt Quick libraries without this tree gets a plugin that loads and then
+  fails at its first import; main.cpp points QML2_IMPORT_PATH here.
+  """
+  src = get_env("QT_DEPLOY") + "/../qml/" + name
+  if not is_dir(src):
+    return
+
+  copy_dir(src, out + "/qml/" + name)
+
+  if ("windows" == host_platform()):
+    for file in glob.glob(out + "/qml/" + name + "/**/*d.dll", recursive=True):
+      fileCheck = file[0:-5] + ".dll"
+      if is_file(fileCheck):
+        delete_file(file)
+    for file in glob.glob(out + "/qml/" + name + "/**/*.pdb", recursive=True):
+      delete_file(file)
+  return
+
 def qt_dst_postfix():
   config_param = config.option("config").lower()
   if (-1 != config_param.find("debug")):
