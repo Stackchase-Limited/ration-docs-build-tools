@@ -6,6 +6,7 @@ import os
 import platform
 import glob
 import dedupe_help_images
+import check_symbol_closure
 
 def copy_lib_with_links(src_dir, dst_dir, lib, version):
   lib_full_name = lib + "." + version
@@ -353,5 +354,24 @@ def make():
 
     if not isUseJSC:
       base.delete_file(root_dir + "/editors/sdkjs/slide/sdk-all.cache")
+
+    # The payload is complete. Check that every module can resolve the symbols it
+    # imports from our other modules - ONLYOFFICE/DesktopEditors#2445 shipped an
+    # ooxmlsignature built against an older core header than the kernel beside it,
+    # and nothing noticed until the loader refused to start the app on a user's
+    # machine. Reported, not fatal: this reads symbol tables rather than linking,
+    # so a build should not be blocked on it. Run the script directly for a
+    # non-zero exit code in CI.
+    unresolved = check_symbol_closure.check(root_dir)
+    if unresolved:
+      print("[symbols] WARNING: %d import(s) of our own symbols are unresolved "
+            "in the payload:" % len(unresolved))
+      for mod, _ns, sym in unresolved:
+        print("[symbols]   %s wants %s" % (mod, sym))
+      print("[symbols] This is the #2445 failure mode - a module built against a "
+            "different revision of a header than the module defining the symbol. "
+            "Rebuild from a clean tree.")
+    else:
+      print("[symbols] ok - every import of ours is satisfied inside the payload")
 
   return
