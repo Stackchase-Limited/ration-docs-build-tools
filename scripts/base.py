@@ -774,9 +774,23 @@ def qt_setup(platform):
   compiler = config.check_compiler(platform)
   qt_dir = config.option("qt-dir") if (-1 == platform.find("_xp")) else config.option("qt-dir-xp")
 
-  # Homebrew provides macOS Qt as a single prefix rather than compiler-named
-  # subdirectories used by the upstream Qt archives.
-  if host_platform() == "mac" and is_file(qt_dir + "/bin/qmake"):
+  # Some Qt installations are a single prefix with bin/qmake directly inside it,
+  # rather than the compiler-named subdirectories (gcc_64, clang_64, ...) that the
+  # upstream Qt archives use and that the code below assumes. Homebrew's macOS Qt
+  # is one; so is Ubuntu's system Qt, where qmake is simply /usr/bin/qmake.
+  #
+  # This started out gated on host_platform() == "mac" when Homebrew support was
+  # added, which meant a linux_arm64 build with qt-dir=/usr fell through to the
+  # logic below, looked for /usr/gcc_arm64 then /usr/gcc_64, found neither, and
+  # reported "THIS PLATFORM IS NOT SUPPORTED" for every module - a message that
+  # reads like the platform is unimplemented when in fact only the Qt layout was
+  # unrecognised.
+  #
+  # The test is the layout itself, so it is safe to apply everywhere: it fires
+  # only when the configured qt-dir directly contains bin/qmake, which is exactly
+  # the single-prefix case. Installations that do use compiler subdirectories do
+  # not have bin/qmake at the top level and are unaffected.
+  if is_file(qt_dir + "/bin/qmake"):
     set_env("QT_DEPLOY", qt_dir)
     return qt_dir
 
