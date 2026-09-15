@@ -2037,6 +2037,14 @@ def restore_sysroot_env():
 def check_python():
   if ("linux" != host_platform()):
     return
+  # The bundled tools/linux/python3 is an x86-64 ELF binary. Prepending it to PATH
+  # on an ARM host makes every later `python3` unrunnable - ICU's configure spawns
+  # one and dies with "cannot execute binary file: Exec format error", which reads
+  # like a broken download rather than the wrong architecture. The system python3
+  # is used instead; check_tools() just below already distinguishes ARM hosts this
+  # way.
+  if is_os_arm():
+    return
   directory = __file__script__path__ + "/../tools/linux"
   directory_bin = __file__script__path__ + "/../tools/linux/python3/bin"
 
