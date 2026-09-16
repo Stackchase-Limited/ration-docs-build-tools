@@ -232,6 +232,19 @@ def make():
 
   os.environ["PATH"] = base_dir + "/depot_tools" + os.pathsep + os.environ["PATH"]
 
+  # depot_tools has to be initialised BEFORE anything uses it. fetch/gclient both
+  # need the bundled python and the CIPD client, and a fresh clone has neither -
+  # they announce it themselves:
+  #   python3_bin_reldir.txt not found. need to initialize depot_tools by
+  #   running gclient, update_depot_tools or ensure_bootstrap.
+  # This call used to sit at the END of the fetch block, after "./depot_tools/fetch
+  # v8" had already run and failed, so on a fresh tree fetch never produced a v8
+  # directory and the build then died on os.chdir("v8") with a bare
+  # FileNotFoundError - several steps away from the actual cause.
+  if ("linux" == base.host_platform()):
+    if not base.is_file("./depot_tools/python3_bin_reldir.txt"):
+      base.cmd_in_dir("./depot_tools", "./ensure_bootstrap", [], True)
+
   if ("windows" == base.host_platform()):
     base.set_env("DEPOT_TOOLS_WIN_TOOLCHAIN", "0")
     base.set_env("GYP_MSVS_VERSION", config.option("vs-version"))
@@ -249,9 +262,6 @@ def make():
     base.cmd("./depot_tools/gclient", ["sync", "-r", v8_branch_version], True)
     base.cmd("gclient", ["sync", "--force"], True)
     base.copy_dir("./v8/third_party_new/ninja", "./v8/third_party/ninja")
-    if ("linux" == base.host_platform()):
-      if not base.is_file("./depot_tools/python3_bin_reldir.txt"):
-        base.cmd_in_dir("./depot_tools", "./ensure_bootstrap", [], True)
 
   if ("windows" == base.host_platform()):
     base.replaceInFile("v8/build/config/win/BUILD.gn", ":static_crt", ":dynamic_crt")
