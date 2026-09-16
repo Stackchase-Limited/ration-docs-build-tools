@@ -347,6 +347,101 @@ def unpatch_windows_debug():
   return
 # ----------------------------------------------------------------------
 
+def gn_script_flags():
+  """Tell gn which interpreter to run build scripts with.
+
+  The gn revision 8.9 pins defaults exec_script's interpreter to a bare
+  "python", and .gn does not override it, so on a distro that only ships
+  python3 `gn gen` dies before generating anything:
+    ERROR at //build/toolchain/concurrent_links.gni:84:19: Script returned
+    non-zero exit code.
+    Command: python .../build/toolchain/get_concurrent_links.py --mem_per_link_gb=3
+    Returned 127.
+  127 is "not found" - the script is fine, the interpreter is missing. The same
+  setting is baked into every action gn writes for ninja, so this is not only a
+  generate-time problem.
+
+  Left alone where a `python` exists, so build machines that still have one are
+  unaffected.
+  """
+  if ("windows" == base.host_platform()):
+    return []
+  if 0 == base.run_command("command -v python")["returncode"]:
+    return []
+  return ["--script-executable=" + sys.executable]
+
+def cipd_ensure(package, version, root):
+  """Install one CIPD package into root. depot_tools must already be on PATH."""
+  base.create_dir(root)
+  ensure_file = root + "/ensure_file.txt"
+  base.writeFile(ensure_file, package + " " + version + "\n")
+  base.cmd("cipd", ["ensure", "-ensure-file", ensure_file, "-root", root], True)
+  return
+
+def fix_ninja_arm64():
+  """Provide a ninja binary for hosts where DEPS does not. Call from v8/.
+
+  8.9's DEPS predates the ninja CIPD entry, so the build relied on a ninja
+  copied out of the trunk third_party captured between "fetch v8" and the
+  branch sync - and that copy only ever happens on the run that does the fetch.
+  Without it depot_tools' wrapper stops the build:
+    depot_tools/ninja.py: Could not find Ninja in the third_party of the
+    current project, nor in your PATH.
+  The wrapper looks for <solution>/third_party/ninja/ninja, so that is where
+  this puts it, pinned rather than latest, and only when nothing usable is
+  already there. An apt ninja-build would also satisfy the wrapper, but that is
+  machine state invisible from the tree.
+  """
+  if not (base.is_os_arm() and "linux" == base.host_platform()):
+    return
+  if base.is_file("third_party/ninja/ninja"):
+    return
+  # Not `command -v ninja`: depot_tools is on PATH and ships a ninja *wrapper*,
+  # so a bare existence check always succeeds and this would never run. Ask the
+  # thing on PATH to do something instead - the wrapper fails, a real ninja does
+  # not.
+  if 0 == base.run_command("ninja --version")["returncode"]:
+    return
+  # The oldest 3pp ninja published for linux-arm64; 8.9 has no pin of its own.
+  cipd_ensure("infra/3pp/tools/ninja/linux-arm64", "version:2@1.11.1.chromium.6",
+              os.path.abspath("third_party/ninja"))
+  return
+
+def fix_gn_arm64():
+  """Replace the x86-64 gn binary 8.9's DEPS pins with the arm64 build of the
+  same revision. Call from the v8 checkout root.
+
+  DEPS names the CIPD package by architecture rather than using ${platform}:
+    'package': 'gn/gn/linux-amd64'
+  so an aarch64 host ends up with an x86-64 gn at buildtools/linux64/gn and the
+  build stops before generating anything:
+    OSError: [Errno 8] Exec format error: '.../v8/buildtools/linux64/gn'
+  Fourth in the same family as the bundled python, rustc and clang.
+
+  gn/gn/linux-arm64 exists at the exact pinned revision (registered the same day
+  as the amd64 one), so this stays on the pin rather than pulling a newer gn.
+  """
+  if not (base.is_os_arm() and "linux" == base.host_platform()):
+    return
+
+  gn_path = "buildtools/linux64/gn"
+  if not base.is_file(gn_path):
+    return
+  if 0 == base.run_command("./" + gn_path + " --version")["returncode"]:
+    return
+
+  version_match = re.search(r"'gn_version'\s*:\s*'([^']+)'", base.readFile("DEPS"))
+  if not version_match:
+    return
+
+  root = os.path.abspath("buildtools/gn-linux-arm64")
+  cipd_ensure("gn/gn/linux-arm64", version_match.group(1), root)
+
+  if base.is_file(root + "/gn"):
+    base.copy_file(root + "/gn", gn_path)
+    base.cmd("chmod", ["+x", gn_path], True)
+  return
+
 def v8_pinned_branch():
   """The v8 branch the rest of this module is written against.
 
@@ -454,6 +549,21 @@ def make():
       base.copy_file("v8/build/config/compiler/BUILD.gn", "v8/build/config/compiler/BUILD.gn.bak")
       base.replaceInFile("v8/build/config/compiler/BUILD.gn", "\"-Wloop-analysis\",", "\"-Wloop-analysis\", \"-D_Float16=short\",")
 
+  # libstdc++ 13 (Ubuntu 24.04's default) stopped including <cstdint> from other
+  # headers, and 2021 v8 leans on that having happened. The result is 15 errors
+  # in the first file ninja compiles, none of which mention a missing header:
+  #   ../../src/base/logging.h:176:34: error: use of undeclared identifier 'uint8_t'
+  #   ../../src/base/bits.h:...: error: unknown type name 'intptr_t'; did you mean '__intptr_t'?
+  # This tree has no extra_cflags gn arg to hang the fix on (checked with
+  # `gn args --list`), so the flag goes into config("compiler") itself, right
+  # after cflags_cc is initialised so later += still apply. Harmless on older
+  # libstdc++, where the header is simply included twice.
+  if ("linux" == base.host_platform()) and not base.is_file("v8/build/config/compiler/BUILD.gn.rd-bak"):
+    base.copy_file("v8/build/config/compiler/BUILD.gn", "v8/build/config/compiler/BUILD.gn.rd-bak")
+    base.replaceInFile("v8/build/config/compiler/BUILD.gn",
+                       "config(\"compiler\") {\n  asmflags = []\n  cflags = []\n  cflags_c = []\n  cflags_cc = []",
+                       "config(\"compiler\") {\n  asmflags = []\n  cflags = []\n  cflags_c = []\n  cflags_cc = [ \"-include\", \"cstdint\" ]")
+
   if not base.is_file("v8/third_party/jinja2/tests.py.bak"):
     base.copy_file("v8/third_party/jinja2/tests.py", "v8/third_party/jinja2/tests.py.bak")
     base.replaceInFile("v8/third_party/jinja2/tests.py", "from collections import Mapping", "try:\n    from collections.abc import Mapping\nexcept ImportError:\n    from collections import Mapping")
@@ -462,6 +572,8 @@ def make():
 
   is_ubuntu24 = is_ubuntu_24_or_higher()
   fix_ubuntu24()
+  fix_gn_arm64()
+  fix_ninja_arm64()
   
   gn_args = ["v8_static_library=true",
              "is_component_build=false",
@@ -479,27 +591,33 @@ def make():
 
       pkg_old = os.environ.get("PKG_CONFIG_PATH", "")
       os.environ["PKG_CONFIG_PATH"] = sysroot_path + "/usr/lib/x86_64-linux-gnu/pkgconfig:" + sysroot_path + "/usr/lib/pkgconfig:" + sysroot_path + "/usr/share/pkgconfig"
-      base.cmd2("gn", ["gen", "out.gn/linux_64", make_args(gn_args, "linux")], False)
+      base.cmd2("gn", ["gen", "out.gn/linux_64"] + gn_script_flags() + [make_args(gn_args, "linux")], False)
       os.environ["PKG_CONFIG_PATH"] = pkg_old
 
       base.cmd2("ninja", ["-C", "out.gn/linux_64"], False)
       base.restore_sysroot_env()
     else:
-      base.cmd2("gn", ["gen", "out.gn/linux_64", make_args(gn_args, "linux")], False)
+      base.cmd2("gn", ["gen", "out.gn/linux_64"] + gn_script_flags() + [make_args(gn_args, "linux")], False)
       base.cmd2("ninja", ["-C", "out.gn/linux_64"], False)
 
 
   if config.check_option("platform", "linux_32"):
-    base.cmd2("gn", ["gen", "out.gn/linux_32", make_args(gn_args, "linux", False)])
+    base.cmd2("gn", ["gen", "out.gn/linux_32"] + gn_script_flags() + [make_args(gn_args, "linux", False)])
     base.cmd("ninja", ["-C", "out.gn/linux_32"])
 
   if config.check_option("platform", "linux_arm64"):
-    base.cmd("build/linux/sysroot_scripts/install-sysroot.py", ["--arch=arm64"], False)
+    # 8.9-era chromium scripts carry a "#!/usr/bin/env python" shebang, and no
+    # distro has shipped a bare `python` since 20.04:
+    #   /usr/bin/env: 'python': No such file or directory
+    #   Error (build/linux/sysroot_scripts/install-sysroot.py): 127
+    # gclient's own hooks get away with it because gclient injects a python shim
+    # onto PATH for the duration of a hook; calling the script directly does not.
+    base.cmd(sys.executable, ["build/linux/sysroot_scripts/install-sysroot.py", "--arch=arm64"], False)
     
     sysroot_path = config.option("sysroot_linux_64")
     pkg_old = os.environ.get("PKG_CONFIG_PATH", "")
     os.environ["PKG_CONFIG_PATH"] = sysroot_path + "/usr/lib/x86_64-linux-gnu/pkgconfig:" + sysroot_path + "/usr/lib/pkgconfig:" + sysroot_path + "/usr/share/pkgconfig"
-    base.cmd2("gn", ["gen", "out.gn/linux_arm64", make_args(gn_args, "linux_arm64", False)])
+    base.cmd2("gn", ["gen", "out.gn/linux_arm64"] + gn_script_flags() + [make_args(gn_args, "linux_arm64", False)])
     os.environ["PKG_CONFIG_PATH"] = pkg_old
 
     base.cmd("ninja", ["-C", "out.gn/linux_arm64"])
