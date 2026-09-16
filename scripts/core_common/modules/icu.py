@@ -134,6 +134,14 @@ def make():
         command_compile_addon = "-stdlib=libc++"
       if "" == config.option("sysroot"):
         base.cmd(command_configure, ["Linux", "--prefix=" + base_dir + "/icu/cross_build_install"])
+        # Idempotent: this whole block is guarded by "linux_64 does not exist yet",
+        # so every failed-and-retried build ran it again and appended another copy
+        # of the flags - after three attempts the link line carried
+        # "-static-libstdc++ -static-libgcc" three times over.
+        if not base.is_file("./../source/icudefs.mk.in.rd-bak"):
+            base.copy_file("./../source/icudefs.mk.in", "./../source/icudefs.mk.in.rd-bak")
+        else:
+            base.copy_file("./../source/icudefs.mk.in.rd-bak", "./../source/icudefs.mk.in")
         base.replaceInFile("./../source/icudefs.mk.in", "LDFLAGS = @LDFLAGS@ $(RPATHLDFLAGS)", "LDFLAGS = @LDFLAGS@ $(RPATHLDFLAGS) " + command_compile_addon)
         # Stop pkgdata emitting a dangling -Wl, when it links the data library.
         #
