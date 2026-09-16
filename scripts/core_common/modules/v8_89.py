@@ -183,6 +183,19 @@ def make_args(args, platform, is_64=True, is_debug=False):
   # that v8's own DEPS does not offer.
   if base.is_os_arm() and (-1 != platform.find("linux")):
     args_copy.append("enable_rust=false")
+    # Temporal is the only thing that pulls Rust in - v8's BUILD.gn has
+    #   if (v8_enable_temporal_support) { public_deps = [ "//third_party/rust/temporal_capi" ] }
+    # and that crate reaches rust_target(), which asserts enable_rust. So turning
+    # Rust off without this gives a different and much less obvious failure:
+    #   ERROR at //build/rust/gni_impl/rust_target.gni:43:3: assert(enable_rust)
+    # naming only the template, four "whence" hops from temporal_capi.
+    #
+    # TRADE-OFF, stated rather than buried: this drops the Temporal date/time API
+    # from the ARM Linux build. doctrenderer runs sdkjs, which targets a much
+    # older JS baseline and does not use Temporal, so nothing we ship needs it -
+    # but an x86 Linux build keeps it, so the two are not identical. Revisit if
+    # v8 ever ships an aarch64 rustc, at which point both flags can go.
+    args_copy.append("v8_enable_temporal_support=false")
 
   return "--args=\"" + " ".join(args_copy) + "\""
 
