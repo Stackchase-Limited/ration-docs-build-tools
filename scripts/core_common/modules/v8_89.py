@@ -5,6 +5,7 @@ sys.path.append('../..')
 import config
 import base
 import os
+import re
 import subprocess
 
 def clean():
@@ -93,6 +94,80 @@ def fix_ubuntu24():
   base.cmd("ln", ["-s", "/usr/lib/" + host_multiarch + "/libstdc++.so.6", "libstdc++.so.6"])
   os.chdir(old_cur)
   return
+
+def system_clang_prefix():
+  """Point gn at the host's own clang instead of v8's bundled x86-64 one.
+
+  v8 ships a clang under third_party/llvm-build, and that binary is x86-64 only:
+  on aarch64 ninja dies at step 1 with
+    /bin/sh: 1: ../../third_party/llvm-build/Release+Asserts/bin/clang++: Exec format error
+  and file(1) on it says "ELF 64-bit LSB ... x86-64". This is the third failure
+  of the same family - v8's DEPS assumes an x86 host - after the x86-64 python
+  bundle check_python() used to force onto ARM and the x86-64 rustc that
+  enable_rust=false works around.
+
+  The host clang works, but gn needs a clang_rt.builtins archive at the exact
+  path build/config/clang/BUILD.gn computes, which is the per-target layout
+    $clang_base_path/lib/clang/$clang_version/lib/aarch64-unknown-linux-gnu/libclang_rt.builtins.a
+  while Debian/Ubuntu's llvm packages use the older flat layout
+    .../lib/clang/18/lib/linux/libclang_rt.builtins-aarch64.a
+  so ninja refuses before compiling anything:
+    ninja: error: '...../aarch64-unknown-linux-gnu/libclang_rt.builtins.a',
+    needed by 'obj/libv8_libbase.a', missing and no known rule to make it
+
+  Rather than writing into /usr - which needs root and is machine state nobody
+  can see from the tree - this builds a small prefix of symlinks inside the
+  checkout and hands gn that. Returns (base_path, major_version), or None when
+  there is no usable system clang, in which case the caller leaves the bundled
+  toolchain alone.
+
+  Run from the v8 checkout root (make_args' caller chdir's there).
+  """
+  version_info = base.run_command("clang --version")
+  if 0 != version_info["returncode"]:
+    return None
+  version_match = re.search(r"clang version (\d+)", version_info["stdout"])
+  if not version_match:
+    return None
+  version = version_match.group(1)
+
+  resource_info = base.run_command("clang -print-resource-dir")
+  if 0 != resource_info["returncode"]:
+    return None
+  resource_dir = resource_info["stdout"]
+
+  # gn's directory name for linux/arm64; this helper is only called for that.
+  triple_dir = "aarch64-unknown-linux-gnu"
+
+  # A clang built with LLVM_ENABLE_PER_TARGET_RUNTIME_DIR already matches gn's
+  # expectation, so /usr can be used directly with no shim.
+  if base.is_file(os.path.join(resource_dir, "lib", triple_dir, "libclang_rt.builtins.a")):
+    return ("/usr", version)
+
+  flat_builtins = os.path.join(resource_dir, "lib", "linux", "libclang_rt.builtins-aarch64.a")
+  if not base.is_file(flat_builtins):
+    # No builtins archive at all - clang is installed without compiler-rt.
+    return None
+
+  clang_bin = base.run_command("readlink -f $(command -v clang)")["stdout"]
+  if "" == clang_bin:
+    return None
+
+  prefix = os.path.abspath("third_party/rd-system-clang")
+  lib_dir = os.path.join(prefix, "lib", "clang", version, "lib", triple_dir)
+  base.create_dir(lib_dir)
+
+  bin_link = os.path.join(prefix, "bin")
+  if not os.path.exists(bin_link):
+    # clang finds its own resource dir from the real binary path, so a symlinked
+    # bin/ is enough - headers still resolve to the packaged ones.
+    base.cmd("ln", ["-s", os.path.dirname(clang_bin), bin_link])
+
+  builtins_link = os.path.join(lib_dir, "libclang_rt.builtins.a")
+  if not os.path.exists(builtins_link):
+    base.cmd("ln", ["-s", flat_builtins, builtins_link])
+
+  return (prefix, version)
 
 def make_args(args, platform, is_64=True, is_debug=False):
   args_copy = args[:]
@@ -196,6 +271,15 @@ def make_args(args, platform, is_64=True, is_debug=False):
     # but an x86 Linux build keeps it, so the two are not identical. Revisit if
     # v8 ever ships an aarch64 rustc, at which point both flags can go.
     args_copy.append("v8_enable_temporal_support=false")
+
+    clang_prefix = system_clang_prefix()
+    if clang_prefix is not None:
+      args_copy.append("clang_base_path=\\\"" + clang_prefix[0] + "\\\"")
+      args_copy.append("clang_version=\\\"" + clang_prefix[1] + "\\\"")
+      # Chromium's own clang plugins (blink-gc-plugin and friends) ship only with
+      # the bundled toolchain; asking a distro clang to load them fails the very
+      # first compile with "unable to load plugin".
+      args_copy.append("clang_use_chrome_plugins=false")
 
   return "--args=\"" + " ".join(args_copy) + "\""
 
