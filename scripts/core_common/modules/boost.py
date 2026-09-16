@@ -113,7 +113,14 @@ def make():
     correct_install_includes_win(base_dir, "win_32")
     correct_install_includes_win(base_dir, "win_arm64")
 
-  if config.check_option("platform", "linux_64") and not base.is_dir("../build/linux_64"):
+  # Guarded on a library the build is supposed to produce, not on the output
+  # directory existing. b2's "headers install" step creates build/<platform>/lib
+  # before any module is compiled, so an interrupted run leaves a directory that
+  # looks complete and every later run skips the module builds entirely. On the
+  # ARM box that directory held nothing but libboost_system.so, and core failed
+  # far away from the cause, with the boost step reporting nothing at all:
+  #   /usr/bin/ld: cannot find -lboost_regex: No such file or directory
+  if config.check_option("platform", "linux_64") and not base.is_file("../build/linux_64/lib/libboost_regex.a"):
     if config.option("sysroot") == "":
       addon_config = []
       addon_compile = []
@@ -132,7 +139,7 @@ def make():
       base.copy_files(directory_build + "/linux_64/*.a", directory_build)
     # TODO: support x86
 
-  if config.check_option("platform", "linux_arm64") and not base.is_dir("../build/linux_arm64"):
+  if config.check_option("platform", "linux_arm64") and not base.is_file("../build/linux_arm64/lib/libboost_regex.a"):
     boost_qt.make(os.getcwd(), ["filesystem", "system", "date_time", "regex"], "linux_arm64")
     directory_build = base_dir + "/build/linux_arm64/lib"
     base.delete_file(directory_build + "/libboost_system.a")
