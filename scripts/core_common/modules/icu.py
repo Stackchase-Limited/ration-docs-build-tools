@@ -188,6 +188,22 @@ def make():
       base.copy_file(base_dir + "/icu/cross_build_install/lib/libicuuc.so." + icu_major + "." + icu_minor, base_dir + "/linux_64/build/libicuuc.so." + icu_major)
       base.copy_dir(base_dir + "/icu/cross_build_install/include", base_dir + "/linux_64/build/include")
 
+    # On an aarch64 host the "cross_build" above is not a cross build at all - it
+    # is the native one - but it is published as linux_64 because that name is
+    # hardcoded. The cross-compile branch below is then skipped (correctly: there
+    # is nothing to cross-compile), so nothing ever creates linux_arm64/build and
+    # the first library that links against ICU fails with a path, not a reason:
+    #   /usr/bin/ld: cannot find .../icu/linux_arm64/build/libicuuc.so.74:
+    #   No such file or directory
+    # even though the file it wants exists, correctly built for this machine, one
+    # directory over. file(1) on linux_64/build/libicuuc.so.74 says "ARM aarch64".
+    if base.is_os_arm() and config.check_option("platform", "linux_arm64") and not base.is_dir(base_dir + "/linux_arm64/build"):
+      base.create_dir(base_dir + "/linux_arm64")
+      base.create_dir(base_dir + "/linux_arm64/build")
+      base.copy_file(base_dir + "/icu/cross_build_install/lib/libicudata.so." + icu_major + "." + icu_minor, base_dir + "/linux_arm64/build/libicudata.so." + icu_major)
+      base.copy_file(base_dir + "/icu/cross_build_install/lib/libicuuc.so." + icu_major + "." + icu_minor, base_dir + "/linux_arm64/build/libicuuc.so." + icu_major)
+      base.copy_dir(base_dir + "/icu/cross_build_install/include", base_dir + "/linux_arm64/build/include")
+
     if config.check_option("platform", "linux_arm64") and not base.is_dir(base_dir + "/linux_arm64") and not base.is_os_arm():
       base.create_dir(base_dir + "/icu/linux_arm64")
       os.chdir(base_dir + "/icu/linux_arm64")
