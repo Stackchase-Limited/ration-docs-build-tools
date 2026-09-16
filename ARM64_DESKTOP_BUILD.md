@@ -50,6 +50,38 @@ packaging mode (`pkgdata` assembly generation) rather than anything in our code.
 (the build calls `7z`; without it you get `Error (7z): 127`, which is a
 command-not-found in disguise).
 
+### Machine state, not code - redo this if the VM is rebuilt
+
+Two things live on the box rather than in this repository, and both were needed
+before a build could get anywhere.
+
+**DNS fallbacks.** The VMware NAT resolver alone is not reliable enough for the
+v8 fetch. A ~2GB clone from `chromium.googlesource.com` got past 1GB and then
+died with
+
+    fatal: unable to access 'https://chromium.googlesource.com/v8/v8.git/':
+    Could not resolve host: chromium.googlesource.com
+
+and gclient moved the half-finished checkout to `_bad_scm`. Resolution was fine
+again seconds later, so the NAT resolver simply blips. Fixed by giving
+systemd-resolved company, in `/etc/systemd/resolved.conf.d/10-rd-fallback.conf`:
+
+    [Resolve]
+    FallbackDNS=1.1.1.1 8.8.8.8 9.9.9.9
+    DNS=172.16.84.2 1.1.1.1 8.8.8.8
+
+**Swap, made persistent.** An 8GB swapfile created with `fallocate` + `swapon`
+did *not* survive a reboot, because it was never added to `/etc/fstab` - it sat
+on disk consuming space while contributing nothing. It is now 4GB and in fstab:
+
+    /swap-rd none swap sw 0 0
+
+**Sizing.** The VM was raised from 2 vCPU / 4GB / 50GB to **6 vCPU / 8GB / 80GB**
+before v8 would fit. Note that VMware growing the virtual disk does *not* extend
+the guest partition: `growpart /dev/nvme0n1 2 && resize2fs /dev/nvme0n1p2` is
+needed inside afterwards, or the extra space is invisible and it looks as though
+the resize did nothing.
+
 **Network note.** Sustained throughput from that box to `github.com` raw content
 measured ~70 KB/s, against 1.2 MB/s to other hosts and 3.9 MB/s for the same URL
 from a Mac on the same network. A 26 MB dependency took ~7 minutes. Staging the
