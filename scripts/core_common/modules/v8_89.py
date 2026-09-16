@@ -29,7 +29,14 @@ def clean():
 def change_bootstrap():
   base.move_file("./depot_tools/bootstrap/manifest.txt", "./depot_tools/bootstrap/manifest.txt.bak")
   content = "# changed by build_tools\n\n"
-  content += "$VerifiedPlatform windows-amd64 windows-arm64 linux-amd64 mac-amd64 mac-arm64\n\n"
+  # linux-arm64 belongs here. Without it depot_tools' CIPD bootstrap refuses to
+  # run on an ARM64 Linux host with
+  #   Platform linux-arm64 is not supported by the CIPD client bootstrap:
+  #   there's no pinned SHA256 hash for it in the *.digests file
+  # and everything downstream fails as "client not configured; see gclient config",
+  # which points at gclient rather than at this list. CIPD itself publishes a
+  # linux-arm64 client; this manifest simply never listed it.
+  content += "$VerifiedPlatform windows-amd64 windows-arm64 linux-amd64 linux-arm64 mac-amd64 mac-arm64\n\n"
 
   content += "@Subdir python\n"
   content += "infra/3pp/tools/cpython/${platform} version:2@2.7.18.chromium.39\n\n"
@@ -74,7 +81,10 @@ def fix_ubuntu24():
   old_cur = os.getcwd()
   os.chdir("third_party/llvm-build/Release+Asserts/lib")
   base.cmd("mv", ["libstdc++.so.6", "libstdc++.so.6.old"])
-  base.cmd("ln", ["-s", "/usr/lib/x86_64-linux-gnu/libstdc++.so.6", "libstdc++.so.6"])
+  # The multiarch directory is per-architecture; hardcoding the x86_64 one makes
+  # this a dangling symlink on any other host.
+  host_multiarch = "aarch64-linux-gnu" if base.is_os_arm() else "x86_64-linux-gnu"
+  base.cmd("ln", ["-s", "/usr/lib/" + host_multiarch + "/libstdc++.so.6", "libstdc++.so.6"])
   os.chdir(old_cur)
   return
 
