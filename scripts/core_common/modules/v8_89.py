@@ -171,6 +171,19 @@ def make_args(args, platform, is_64=True, is_debug=False):
     # renderer, so the sandbox is not something we rely on here.
     args_copy.append("v8_enable_sandbox=false")
 
+  # v8's DEPS pulls a Linux_x64 Rust toolchain regardless of host architecture, so
+  # on aarch64 ninja gets eight steps in and dies with
+  #   OSError: [Errno 8] Exec format error:
+  #   PosixPath('../../third_party/rust-toolchain/bin/rustc')
+  # confirmed by file(1): the fetched rustc is an x86-64 ELF. Same shape as the
+  # x86-64 python bundle that check_python() used to force onto ARM hosts.
+  #
+  # Rust is not needed for what we build here - a monolithic static v8 embedded in
+  # doctrenderer - so it is switched off rather than chasing an aarch64 toolchain
+  # that v8's own DEPS does not offer.
+  if base.is_os_arm() and (-1 != platform.find("linux")):
+    args_copy.append("enable_rust=false")
+
   return "--args=\"" + " ".join(args_copy) + "\""
 
 def ninja_windows_make(args, is_64=True, is_debug=False, is_arm=False):
