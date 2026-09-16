@@ -21,8 +21,15 @@ defines.  Restricting it to our own namespaces is what keeps it quiet: symbols
 that come from the C library, libstdc++, Qt, ICU or the system frameworks are
 resolved by the loader from outside the payload and are none of our business.
 
+A second check covers what that restriction leaves out.  An import from a foreign
+namespace is fine as long as the system really does define it; when it does not -
+`-static-libstdc++` on a shared library leaves libstdc++'s *private* statics
+undefined, and libstdc++.so.6 exports none of them - the payload links, packages,
+and then dies before main() with a symbol lookup error.  `ldd -r` asks the real
+loader to resolve every relocation, which answers exactly that question.
+
   usage: check_symbol_closure.py <payload-dir> [--verbose]
-  exit 0 = closed, exit 1 = at least one of our imports is unresolved.
+  exit 0 = closed, exit 1 = at least one import is unresolved.
 """
 
 import os
@@ -201,6 +208,14 @@ def check_libraries(root):
         base = dep.replace('lib', '', 1) if dep.startswith('lib') else dep
         return base.startswith('Qt')
 
+    # A build that links the system Qt bundles none of it, so every Qt dependency is
+    # "not shipped" and the check has nothing to say - it is about a bundled family
+    # being incomplete, and there is no family here. The Linux arm64 build is exactly
+    # this case (qt-dir=/usr), and without this it reported all 17 of its Qt
+    # dependencies as faults.
+    if not any(isQt(name) for name in shipped):
+        return []
+
     failures = []
     for p in sorted(modules):
         for dep in sorted(dependencies(p)):
@@ -212,6 +227,70 @@ def check_libraries(root):
                 continue
             failures.append((os.path.relpath(p, root), dep))
     return failures
+
+def check_runtime(root):
+    """Return [(module, symbol)] for imports the loader cannot resolve at all.
+
+    check() deliberately ignores imports from foreign namespaces - std, Qt, ICU and
+    the rest are supplied from outside the payload and are not ours to define. That
+    is right until the system does not supply them either, which is what
+    -static-libstdc++ on a shared library produces:
+
+        ./DesktopEditors: symbol lookup error: .../libascdocumentscore.so:
+        undefined symbol: _ZNSt8ios_base4Init20_S_synced_with_stdioE
+
+    Those are libstdc++'s private statics. The archive members that reference them
+    were linked in, the members defining them were not, and libstdc++.so.6 does not
+    export private statics - so nothing anywhere can satisfy them. The build is
+    silent, because undefined symbols are legal when linking a shared object; the
+    payload only fails when someone starts it.
+
+    `ldd -r` answers exactly this question - it asks the real loader to resolve every
+    relocation - so that is what this uses, with the payload's own directories on the
+    search path. ELF only; there is no equivalent that is cheap on Mach-O, and dyld's
+    two-level namespace makes this failure mode far less likely there.
+    """
+    if MACHO:
+        return []
+
+    modules = []
+    dirs = set()
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for name in filenames:
+            p = os.path.join(dirpath, name)
+            if is_module(p):
+                modules.append(p)
+                dirs.add(dirpath)
+    if not modules:
+        raise ValueError('no modules found under %s' % root)
+
+    env = dict(os.environ)
+    env['LD_LIBRARY_PATH'] = os.pathsep.join(sorted(dirs))
+
+    failures = []
+    for path in sorted(modules):
+        try:
+            r = subprocess.run(['ldd', '-r', path], capture_output=True, text=True,
+                               timeout=120, env=env)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for ln in (r.stdout + r.stderr).splitlines():
+            ln = ln.strip()
+            if not ln.startswith('undefined symbol:'):
+                continue
+            sym = ln[len('undefined symbol:'):].strip().split()[0]
+            # ldd names the module that carries the reference in parentheses; report
+            # that one rather than whichever module pulled it in.
+            owner = path
+            if '(' in ln and ln.rstrip().endswith(')'):
+                named = ln[ln.rfind('(') + 1:-1]
+                if os.path.isfile(named):
+                    owner = named
+            entry = (os.path.relpath(owner, root), sym)
+            if entry not in failures:
+                failures.append(entry)
+    return sorted(failures)
+
 
 def main(argv):
     if not argv or argv[0] in ('-h', '--help'):
@@ -242,8 +321,22 @@ def main(argv):
               'libraries are not on the explicit list. It cannot load from the bundle, and\n'
               'on a machine with system Qt it loads a second copy of Qt into the process.')
 
-    if not failures and not libs:
-        print('ok - every import of ours is satisfied inside the payload')
+    try:
+        unloadable = check_runtime(root)
+    except ValueError as e:
+        sys.stderr.write('%s\n' % e)
+        return 2
+    if unloadable:
+        print('\n%d symbol(s) neither the payload nor the system defines:' % len(unloadable))
+        for mod, sym in unloadable:
+            print('  %s\n      wants %s' % (mod, sym))
+        print('\nThe loader cannot start a process that needs these. A run of libstdc++\n'
+              'private statics here means a shared library was linked with\n'
+              '-static-libstdc++: it took the archive members that reference them without\n'
+              'the ones that define them, and libstdc++.so.6 exports no private statics.')
+
+    if not failures and not libs and not unloadable:
+        print('ok - every import is satisfied, inside the payload or by the system')
         return 0
     if not failures:
         return 1
