@@ -135,6 +135,26 @@ def make():
       if "" == config.option("sysroot"):
         base.cmd(command_configure, ["Linux", "--prefix=" + base_dir + "/icu/cross_build_install"])
         base.replaceInFile("./../source/icudefs.mk.in", "LDFLAGS = @LDFLAGS@ $(RPATHLDFLAGS)", "LDFLAGS = @LDFLAGS@ $(RPATHLDFLAGS) " + command_compile_addon)
+        # Stop pkgdata emitting a dangling -Wl, when it links the data library.
+        #
+        # config/mh-linux defines
+        #     LD_SONAME = -Wl,-soname -Wl,$(notdir $(MIDDLE_SO_TARGET))
+        # and data/pkgdataMakefile.in deliberately sets MIDDLE_SO_TARGET to empty
+        # before echoing LD_SONAME into icupkg.inc, so the generated value is the
+        # bare "-Wl,-soname -Wl,". pkgdata then appends the library name after it,
+        # producing
+        #     -Wl,-soname -Wl, libicudata.so.74
+        # and ld reads that trailing name as an input FILE:
+        #     /usr/bin/ld: cannot find libicudata.so.74: No such file or directory
+        # which surfaces only as pkgdata's "Error generating assembly code for
+        # data" and looks like a data-generation problem rather than a link flag.
+        #
+        # pkgdata handles an empty LD_SONAME explicitly - it then omits the name
+        # as well - so blanking it is the supported way out. The resulting
+        # libicudata carries no SONAME, which is harmless here: pkgdata still
+        # creates the libicudata.so.74 and libicudata.so symlinks, and nothing
+        # loads it by SONAME.
+        base.replaceInFile("./../source/data/pkgdataMakefile.in", "@echo LD_SONAME=$(LD_SONAME) >> $(OUTPUTFILE)", "@echo LD_SONAME= >> $(OUTPUTFILE)")
       else:
         base.set_sysroot_env("linux_64") 
         sysroot_path = config.option("sysroot_linux_64")
