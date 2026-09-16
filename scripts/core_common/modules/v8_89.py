@@ -167,6 +167,15 @@ def system_clang_prefix():
   if not os.path.exists(builtins_link):
     base.cmd("ln", ["-s", flat_builtins, builtins_link])
 
+  # Older build/ checkouts (v8 8.9's own is from 2021) look for the flat name
+  # under lib/linux instead, so mirror it there too rather than betting on which
+  # vintage of build/config/clang/BUILD.gn the tree ends up with.
+  flat_dir = os.path.join(prefix, "lib", "clang", version, "lib", "linux")
+  base.create_dir(flat_dir)
+  flat_link = os.path.join(flat_dir, "libclang_rt.builtins-aarch64.a")
+  if not os.path.exists(flat_link):
+    base.cmd("ln", ["-s", flat_builtins, flat_link])
+
   return (prefix, version)
 
 def make_args(args, platform, is_64=True, is_debug=False):
@@ -338,6 +347,25 @@ def unpatch_windows_debug():
   return
 # ----------------------------------------------------------------------
 
+def v8_pinned_branch():
+  """The v8 branch the rest of this module is written against.
+
+  doctrenderer compiles against the 8.9 C++ API (9.9 on mac), so an unpinned
+  checkout is not "a newer v8", it is a tree that cannot build at all.
+  """
+  if ("mac" == base.host_platform()):
+    return "remotes/branch-heads/9.9"
+  return "remotes/branch-heads/8.9"
+
+def is_v8_pinned():
+  """True when v8/ is checked out at exactly the pinned branch head."""
+  branch = v8_pinned_branch()
+  head = base.run_command("git -C v8 rev-parse HEAD")
+  want = base.run_command("git -C v8 rev-parse " + branch)
+  if 0 != head["returncode"] or 0 != want["returncode"]:
+    return False
+  return head["stdout"] == want["stdout"]
+
 def make():
   old_env = dict(os.environ)
   old_cur = os.getcwd()
@@ -382,11 +410,25 @@ def make():
       os.chdir("v8")
       base.cmd("git", ["config", "--system", "core.longpaths", "true"], True)
       os.chdir("../")
-    v8_branch_version = "remotes/branch-heads/8.9"
-    if ("mac" == base.host_platform()):
-      v8_branch_version = "remotes/branch-heads/9.9"
-    base.cmd("./depot_tools/gclient", ["sync", "-r", v8_branch_version], True)
+
+  # The pin used to sit inside the "v8 does not exist yet" branch above, so it ran
+  # exactly once - on the first fetch - and every later run trusted whatever was
+  # there. "fetch v8" leaves the checkout on trunk, so if the sync that follows it
+  # fails or is interrupted (a dropped connection, a full disk, ^C), the directory
+  # still exists and the pin is never attempted again: the tree stays on trunk and
+  # silently builds the wrong v8. That is what the ARM box was doing - a checkout
+  # calling itself v8_89 with V8_MAJOR_VERSION 15 in include/v8-version.h, and a
+  # build/ from the same week, which is why ninja was passing clang flags no
+  # released compiler has ever heard of:
+  #   clang++: error: unknown argument: '-fdiagnostics-show-inlining-chain'
+  # Checking the checkout rather than the directory makes this self-healing.
+  if not is_v8_pinned():
+    base.cmd("./depot_tools/gclient", ["sync", "-r", v8_pinned_branch()], True)
     base.cmd("gclient", ["sync", "--force"], True)
+
+  # 8.9's DEPS predates the ninja entry, so the binary comes from the trunk
+  # third_party captured just after fetch.
+  if base.is_dir("./v8/third_party_new/ninja") and not base.is_dir("./v8/third_party/ninja"):
     base.copy_dir("./v8/third_party_new/ninja", "./v8/third_party/ninja")
 
   if ("windows" == base.host_platform()):
