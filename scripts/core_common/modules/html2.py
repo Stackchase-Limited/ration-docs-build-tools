@@ -26,7 +26,7 @@ def make():
   os.chdir(old_cur_dir)
 
   scripts_dir = base.get_script_dir()
-  base.cmd_in_dir(base_dir, "env", ["PYTHONPATH=" + scripts_dir, "python", "fetch.py"])
+  base.cmd_in_dir(base_dir, "env", ["PYTHONPATH=" + scripts_dir, base.python_exe(), "fetch.py"])
   return
 
 if __name__ == '__main__':

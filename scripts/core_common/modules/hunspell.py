@@ -18,11 +18,11 @@ def make(build_js = True):
   os.chdir(core_common_dir + "/3dParty/hunspell")
 
   base.common_check_version("hunspell", "1", clean)
-  base.cmd("env", ["PYTHONPATH=" + base.get_script_dir(), "python", "./before.py"])
+  base.cmd("env", ["PYTHONPATH=" + base.get_script_dir(), base.python_exe(), "./before.py"])
 
   if (build_js):
     os.chdir(core_common_dir + "/js")
-    base.cmd("python", ["./make.py", core_common_dir + "/3dParty/hunspell/hunspell.json"])
+    base.cmd(base.python_exe(), ["./make.py", core_common_dir + "/3dParty/hunspell/hunspell.json"])
 
   os.chdir(old_cur_dir)
 

@@ -215,7 +215,7 @@ def make():
 
     # mac
     if (-1 != config.option("platform").find("mac_")) and not base.is_dir("mac_64/build"):
-      base.cmd_in_dir(os.path.dirname(os.path.abspath(__file__)), "python", ["icu_mac.py"])
+      base.cmd_in_dir(os.path.dirname(os.path.abspath(__file__)), base.python_exe(), ["icu_mac.py"])
 
     # ios
     if (-1 != config.option("platform").find("ios")):

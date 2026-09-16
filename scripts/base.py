@@ -483,6 +483,18 @@ def cmd_and_return_cwd(prog, args=[], is_no_errors=False):
   os.chdir(cur_dir)
   return ret
 
+def python_exe():
+  """Interpreter to run build scripts with as a subprocess.
+
+  These scripts used to be invoked as a bare "python", which no distro has
+  shipped since Ubuntu 20.04:
+    env: 'python': No such file or directory
+    Error (env): 127
+  sys.executable is whatever is running this build, so it always exists and is
+  the version the caller was actually tested against.
+  """
+  return sys.executable
+
 def run_command(sCommand):
   popen = subprocess.Popen(sCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
   result = {'stdout' : '', 'stderr' : '', 'returncode' : 0}
@@ -2063,7 +2075,7 @@ def check_tools():
     if not is_os_arm() and config.check_option("platform", "linux_arm64"):
       if not is_dir(directory + "/qt"):
         create_dir(directory + "/qt")
-      cmd("python", [directory + "/arm/build_qt.py", "--arch", "arm64", directory + "/qt/arm64"])
+      cmd(python_exe(), [directory + "/arm/build_qt.py", "--arch", "arm64", directory + "/qt/arm64"])
   return
 
 def apply_patch(file, patch):

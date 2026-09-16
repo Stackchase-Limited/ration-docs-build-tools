@@ -70,6 +70,6 @@ def make(solution=""):
       # build JNI library
       qmake.make(platform, base.get_script_dir() + "/../../core/DesktopEditor/doctrenderer/docbuilder.java/src/jni/docbuilder_jni.pro", "", True)
       # build Java code to JAR
-      base.cmd_in_dir(base.get_script_dir() + "/../../core/DesktopEditor/doctrenderer/docbuilder.java", "python", ["make.py"])
+      base.cmd_in_dir(base.get_script_dir() + "/../../core/DesktopEditor/doctrenderer/docbuilder.java", base.python_exe(), ["make.py"])
 
   return

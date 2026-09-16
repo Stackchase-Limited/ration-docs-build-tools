@@ -129,7 +129,7 @@ def make():
     base.create_x2t_js_cache(converter_dir, "server", platform)
 
     # add embed worker code
-    base.cmd_in_dir(git_dir + "/sdkjs/common/embed", "python", ["make.py", js_dir + "/web-apps/apps/api/documents/api.js"])
+    base.cmd_in_dir(git_dir + "/sdkjs/common/embed", base.python_exe(), ["make.py", js_dir + "/web-apps/apps/api/documents/api.js"])
 
     # plugins
     base.create_dir(js_dir + "/sdkjs-plugins")

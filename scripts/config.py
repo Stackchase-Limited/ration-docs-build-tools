@@ -139,7 +139,7 @@ def parse():
       extend_option("config", "bundle_dylibs")
 
   if check_option("use-system-qt", "1"):
-    base.cmd_in_dir(base.get_script_dir() + "/../tools/linux", "python", ["use_system_qt.py"])
+    base.cmd_in_dir(base.get_script_dir() + "/../tools/linux", base.python_exe(), ["use_system_qt.py"])
     options["qt-dir"] = base.get_script_dir() + "/../tools/linux/system_qt"
 
   # disable all warnings (enable if needed with core_enable_all_warnings options)

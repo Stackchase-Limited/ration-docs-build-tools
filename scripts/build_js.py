@@ -46,7 +46,7 @@ def make():
 
   # builder
   if not isOnlyMobile:
-    base.cmd_in_dir(base_dir + "/../web-apps/translation", "python", ["merge_and_check.py"])
+    base.cmd_in_dir(base_dir + "/../web-apps/translation", base.python_exe(), ["merge_and_check.py"])
     build_interface(base_dir + "/../web-apps/build")
     build_sdk_builder(base_dir + "/../sdkjs/build")
     base.create_dir(out_dir + "/builder")
@@ -126,7 +126,7 @@ def _run_build_py(directory, params=[]):
       directory_result = directory_branding
   if (base.is_file(directory_result + "/package.json")):
     _run_npm_ci(directory_result)
-  return base.cmd_in_dir(directory_result, "python", ["build.py"] + params)
+  return base.cmd_in_dir(directory_result, base.python_exe(), ["build.py"] + params)
 
 def build_interface(directory):
   _run_npm(directory)
@@ -175,7 +175,7 @@ def build_js_develop(root_dir):
   _run_npm(root_dir + external_folder + "/web-apps/build")
   _run_npm_ci(root_dir + external_folder + "/web-apps/build/sprites")
   _run_grunt(root_dir + external_folder + "/web-apps/build/sprites", [])
-  base.cmd_in_dir(root_dir + external_folder + "/web-apps/translation", "python", ["merge_and_check.py"])
+  base.cmd_in_dir(root_dir + external_folder + "/web-apps/translation", base.python_exe(), ["merge_and_check.py"])
 
   old_cur = os.getcwd()
   old_product_version = base.get_env("PRODUCT_VERSION")
