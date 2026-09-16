@@ -549,23 +549,52 @@ def make():
       base.copy_file("v8/build/config/compiler/BUILD.gn", "v8/build/config/compiler/BUILD.gn.bak")
       base.replaceInFile("v8/build/config/compiler/BUILD.gn", "\"-Wloop-analysis\",", "\"-Wloop-analysis\", \"-D_Float16=short\",")
 
-  # libstdc++ 13 (Ubuntu 24.04's default) stopped including <cstdint> from other
-  # headers, and 2021 v8 leans on that having happened. The result is 15 errors
-  # in the first file ninja compiles, none of which mention a missing header:
+  # 2021 v8 against a 2024 toolchain needs two flags, and neither failure names
+  # a flag or a header.
+  #
+  # libstdc++ 13 stopped including <cstdint> from other headers, and this v8
+  # leans on that having happened, so the first file ninja compiles produces 15
+  # errors of the form
   #   ../../src/base/logging.h:176:34: error: use of undeclared identifier 'uint8_t'
   #   ../../src/base/bits.h:...: error: unknown type name 'intptr_t'; did you mean '__intptr_t'?
-  # This tree has no extra_cflags gn arg to hang the fix on (checked with
-  # `gn args --list`), so the flag goes into config("compiler") itself, right
-  # after cflags_cc is initialised so later += still apply. Harmless on older
-  # libstdc++, where the header is simply included twice.
-  if ("linux" == base.host_platform()) and not base.is_file("v8/build/config/compiler/BUILD.gn.rd-bak"):
-    base.copy_file("v8/build/config/compiler/BUILD.gn", "v8/build/config/compiler/BUILD.gn.rd-bak")
-    base.replaceInFile("v8/build/config/compiler/BUILD.gn",
-                       "config(\"compiler\") {\n  asmflags = []\n  cflags = []\n  cflags_c = []\n  cflags_cc = []",
-                       "config(\"compiler\") {\n  asmflags = []\n  cflags = []\n  cflags_c = []\n  cflags_cc = [ \"-include\", \"cstdint\" ]")
+  #
+  # clang 16 turned -Wenum-constexpr-conversion into an error-by-default, which
+  # v8's bit-field.h trips on every enum-typed field:
+  #   ../../src/base/bit-field.h:43:29: error: integer value 7 is outside the
+  #   valid range of values [0, 3] for the enumeration type 'Kind'
+  # treat_warnings_as_errors=false does not reach it - it is an error, not a
+  # warning promoted to one - so it has to be named explicitly. clang 20 removes
+  # the escape hatch, at which point this needs a real source fix or an older
+  # clang.
+  #
+  # This tree has no extra_cflags gn arg to hang either on (checked with
+  # `gn args --list`), so they go into config("compiler") itself, right after
+  # cflags_cc is initialised so later += still apply. Written against the
+  # pristine file each time rather than appending to whatever is there.
+  if ("linux" == base.host_platform()):
+    compiler_gn = "v8/build/config/compiler/BUILD.gn"
+    compiler_gn_bak = compiler_gn + ".rd-bak"
+    cflags_cc = "[ \"-include\", \"cstdint\", \"-Wno-enum-constexpr-conversion\" ]"
+    if -1 == base.readFile(compiler_gn).find(cflags_cc):
+      if base.is_file(compiler_gn_bak):
+        base.copy_file(compiler_gn_bak, compiler_gn)
+      else:
+        base.copy_file(compiler_gn, compiler_gn_bak)
+      base.replaceInFile(compiler_gn,
+                         "config(\"compiler\") {\n  asmflags = []\n  cflags = []\n  cflags_c = []\n  cflags_cc = []",
+                         "config(\"compiler\") {\n  asmflags = []\n  cflags = []\n  cflags_c = []\n  cflags_cc = " + cflags_cc)
 
-  if not base.is_file("v8/third_party/jinja2/tests.py.bak"):
-    base.copy_file("v8/third_party/jinja2/tests.py", "v8/third_party/jinja2/tests.py.bak")
+  # Guarded on the file's contents, not on the .bak marker it used to check.
+  # The marker survives a re-sync while the file it describes does not, so after
+  # gclient put the 8.9 jinja2 back, the patch was skipped and ninja died 159
+  # steps in on a python2 import:
+  #   from collections import Mapping
+  #   ImportError: cannot import name 'Mapping' from 'collections'
+  # Same shape as the v8 pin that only ran on first fetch: a marker standing in
+  # for the state it is meant to describe.
+  if -1 != base.readFile("v8/third_party/jinja2/tests.py").find("from collections import Mapping"):
+    if not base.is_file("v8/third_party/jinja2/tests.py.bak"):
+      base.copy_file("v8/third_party/jinja2/tests.py", "v8/third_party/jinja2/tests.py.bak")
     base.replaceInFile("v8/third_party/jinja2/tests.py", "from collections import Mapping", "try:\n    from collections.abc import Mapping\nexcept ImportError:\n    from collections import Mapping")
 
   os.chdir("v8")
