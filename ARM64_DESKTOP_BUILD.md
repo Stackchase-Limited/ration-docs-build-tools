@@ -9,51 +9,114 @@ supports the `linux_arm64` target and supplies ARM64 Qt and sysroot inputs.
 - At least 8 GB RAM and 4 GB swap
 - At least 100 GB of free storage available to Docker
 
-## Status: first bring-up attempted 2026-09-15
+## Status: builds and runs, 2026-09-16
 
-Attempted natively on Ubuntu 24.04.5 aarch64 (2 cores, 3.9 GB RAM + 7.3 GB swap,
-39 GB disk). Driving `build_tools/make.py` with `platform="linux_arm64"` and
-`qt-dir="/usr"` - the approach this document suggested but nobody had tried.
+Ubuntu 24.04.5 aarch64, 6 cores, 7.6 GB RAM, 78 GB disk. `build_tools/make.py`
+with `platform="linux_arm64"`, `qt-dir="/usr"`, `sysroot="0"` completes, and the
+result starts.
 
-**Two blockers found and fixed**, both in our own tooling, both committed:
+What that took, in the order the build hit them. Every one of these is committed;
+the point of listing them is that **not one error named its own cause**.
 
-1. `qt_setup()` recognised a single-prefix Qt only on macOS. It was added for
-   Homebrew and gated on `host_platform() == "mac"`; Ubuntu's system Qt has the
-   same shape (`/usr/bin/qmake`), so linux_arm64 fell through to logic expecting
-   `gcc_64/` subdirectories and printed **"THIS PLATFORM IS NOT SUPPORTED"** once
-   per module. That message is misleading - `check_support_platform()` only tests
-   whether `<qt_dir>/bin/qmake` exists, so the platform was rejected purely
-   because the Qt layout was unrecognised. Now tests the layout, not the host.
+*Our tooling assumed an x86 host, four times over.* v8's DEPS pulls an x86-64
+python bundle, an x86-64 rustc, an x86-64 clang and - because it names the CIPD
+package by architecture rather than with `${platform}` - an x86-64 `gn`. Each
+appears as `Exec format error` on a different file, several steps from anything
+that mentions architecture. `file(1)` on the binary settles each one in seconds.
 
-2. `check_python()` downloads `tools/linux/python3` and prepends it to `PATH` for
-   any Linux host. That bundle is an **x86-64 ELF binary**, so on aarch64 every
-   later `python3` fails - ICU's configure reports *"cannot execute binary file:
-   Exec format error"*, which reads like a corrupt download. ARM hosts now keep
-   their system `python3`. `check_tools()` immediately below already made this
-   distinction with `is_os_arm()`.
+*Markers standing in for the state they describe*, four more times: the v8 branch
+pin ran only on the first fetch (so the tree sat on **trunk 15.6** calling itself
+v8_89, which is why ninja was passing clang flags no released compiler has); the
+jinja2 patch was guarded by a `.bak` that outlived the file; hunspell skipped its
+clone because a directory existed without a `.git`; boost skipped its module
+builds because `b2 headers install` had created the output directory. Each now
+checks the artifact - the checkout's HEAD, the file's contents, the clone's
+`.git`, a library the build is supposed to produce.
 
-**Current blocker: ICU.** The build now reaches dependency compilation and fails
-building ICU's data library:
+*A bare `python`.* 8.9-era chromium scripts, gn's default `exec_script`
+interpreter, and twelve call sites in `build_tools` all invoke `python`, which no
+distro has shipped since 20.04. `Error (env): 127` is command-not-found in
+disguise.
 
-    Error generating library file. Failed command: gcc ... -shared -Wl,-Bsymbolic
-      -nodefaultlibs -nostdlib -o ../lib/libicudata.so.74.2 ./out/tmp/icudt74l_dat.o
-    Error generating assembly code for data.
-    make[1]: *** [Makefile:176: packagedata] Error 1
+*2021 sources against a 2024 toolchain.* libstdc++ 13 stopped including
+`<cstdint>` transitively, and clang 16 made `-Wenum-constexpr-conversion` an
+error; both are handled in `v8_89.py` by patching v8's `config("compiler")`,
+since that tree has no `extra_cflags` gn arg to hang them on.
 
-Worth knowing before picking this up: `icu.py` does anticipate a native ARM host -
-its cross-compile block is guarded by `not base.is_os_arm()` and is correctly
-skipped. The failure is in the *native* build, which writes into a directory named
-`linux_64` regardless of host architecture. The likely direction is ICU's data
-packaging mode (`pkgdata` assembly generation) rather than anything in our code.
+*ICU built correctly under the wrong name.* On aarch64 the "cross_build" is the
+native build but is published as `linux_64`, and the cross-compile branch is
+then skipped because there is nothing to cross-compile - so the first link fails
+with `cannot find .../icu/linux_arm64/build/libicuuc.so.74` while that library
+sits one directory over, `file(1)` reporting "ARM aarch64".
 
-**Also required on a bare Ubuntu box**, beyond the package list below: `p7zip-full`
-(the build calls `7z`; without it you get `Error (7z): 127`, which is a
-command-not-found in disguise).
+*Qt 5.15 and glib against code written for neither.* Qt's `signals` macro
+collides with `GDBusSignalInfo **signals` in gio's headers (fixed by
+`platform_linux/glib_includes.h`, which suppresses the keyword across the glib
+includes); `<QPainterPath>` stopped arriving with `<QPainter>` in 5.13; and
+`<QDesktopWidget>` was included only when `QT_VERSION < 5.11`, which is exactly
+backwards.
+
+*Two of our own fixes had never been compiled.* macOS builds `desktop-apps/macos`
+and never touches `win-linux/`, so the Wayland guard (#2105) called
+`Utils::isWaylandSession()` when the function is in `WindowHelper`, and the
+relative-hyperlink fix called `GetLocalFilePath()` on a `CCefView` when it belongs
+to `CCefViewEditor`. Neither could ever have built. **Treat any win-linux change
+made on a Mac as unverified until this box has compiled it.**
+
+*Static libstdc++ in a shared library.* `-static-libstdc++` was applied to every
+app and plugin target. On a shared library it takes the libstdc++.a members that
+reference the runtime's private statics without the ones that define them, and
+`libstdc++.so.6` exports no private statics - so the payload built, packaged,
+passed our symbol-closure check, and then died before `main()`:
+
+    ./DesktopEditors: symbol lookup error: .../libascdocumentscore.so:
+    undefined symbol: _ZNSt8ios_base4Init20_S_synced_with_stdioE
+
+Static libstdc++ is opt-in now (`CONFIG += core_linux_static_libstd`) on both
+sides, and `check_symbol_closure.py` gained a `check_runtime()` pass that asks the
+real loader, via `ldd -r`, to resolve every relocation. It reports all ten
+symbols on the payload that shipped without them.
+
+### Verified on the box
+
+- `make.py` exits 0; `out/linux_arm64/onlyoffice/desktopeditors` is 1.9 GB.
+- `ldd -r` on the payload: no undefined symbols. `check_symbol_closure.py`: ok.
+- `DesktopEditors` starts and prints its usage under `QT_QPA_PLATFORM=offscreen`.
+- x2t round trip: `csv -> xlsx` (4,744 bytes) and `xlsx -> pdf` (13,823 bytes,
+  `%PDF-1.7`), which exercises x2t, doctrenderer, v8, sdkjs and the font stack.
+  `AllFonts.js` has to exist first - `allfontsgen` generates it, and packaging is
+  what normally does so.
+
+### Not done
+
+The Linux app still carries ONLYOFFICE identity: `APP_TITLE`, `APP_DATA_PATH`,
+`WINDOW_NAME` and the help/release URLs in `win-linux/src/defines.h`, plus the
+package name, `.desktop` files and icons under `desktop-apps/package`. macOS was
+renamed in e829d0d7d; Linux has had no equivalent. **No Linux artifact should be
+published until it has one** - see `REQUIRES_APPROVAL.md`.
 
 ### Machine state, not code - redo this if the VM is rebuilt
 
-Two things live on the box rather than in this repository, and both were needed
-before a build could get anywhere.
+These live on the box rather than in this repository, and all were needed before
+a build could get anywhere.
+
+**Packages.** On top of the list below, installed one failure at a time as the
+build asked for them:
+
+    clang lld                      # v8's bundled clang is x86-64
+    qtmultimedia5-dev libqt5svg5-dev libqt5x11extras5-dev qttools5-dev
+    libx11-xcb-dev libxcb1-dev libxcb-keysyms1-dev libxkbcommon-x11-dev
+    libgl1-mesa-dev libglu1-mesa-dev libxext-dev
+    libnotify-dev libgtk-3-dev libatk1.0-dev libglib2.0-dev libdbus-1-dev
+    libcups2-dev
+    npm  +  `npm install -g grunt-cli`   # the JS build shells out to grunt
+
+Each absence shows up as something other than a missing package: a missing Qt
+module is `Project ERROR: Unknown module(s) in QT`, a missing header is a
+`fatal error` in a source file, and a missing grunt is `Error (grunt): 127`.
+`pkg-config --exists` on each of atk, dbus-1, gio-unix-2.0, glib-2.0, gtk+-3.0,
+gtk+-unix-print-3.0, libnotify, xcb and xext is the quick way to check the set.
+
 
 **DNS fallbacks.** The VMware NAT resolver alone is not reliable enough for the
 v8 fetch. A ~2GB clone from `chromium.googlesource.com` got past 1GB and then
