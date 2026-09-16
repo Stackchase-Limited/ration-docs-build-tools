@@ -43,10 +43,16 @@ def change_bootstrap():
 
   content += "@Subdir python3\n"
 
-  if ("windows" == base.host_platform()):
-    content += "infra/3pp/tools/cpython3/${platform} version:2@3.11.8.chromium.35\n\n"
-  else:
-    content += "infra/3pp/tools/cpython3/${platform} version:2@3.8.10.chromium.23\n\n"
+  # One pin for every host. depot_tools' own fetch.py uses
+  # argparse.BooleanOptionalAction, which is Python 3.9+, so the 3.8.10 that used
+  # to be pinned everywhere except Windows made a fresh clone unusable:
+  #   File "./depot_tools/fetch.py", line 247, in handle_args
+  #       action=argparse.BooleanOptionalAction,
+  #   AttributeError: module 'argparse' has no attribute 'BooleanOptionalAction'
+  # fetch is invoked with errors suppressed, so that surfaced only much later as a
+  # missing v8 directory. Windows was already on 3.11.8 and unaffected; this is
+  # not architecture-specific, it is a stale pin against current depot_tools.
+  content += "infra/3pp/tools/cpython3/${platform} version:2@3.11.8.chromium.35\n\n"
 
   content += "@Subdir git\n"
   content += "infra/3pp/tools/git/${platform} version:2@2.41.0.chromium.11\n"
