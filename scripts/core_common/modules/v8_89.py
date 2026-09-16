@@ -160,6 +160,16 @@ def make_args(args, platform, is_64=True, is_debug=False):
 
   if linux_clang != True:
     args_copy.append("use_custom_libcxx=false")
+    # v8's sandbox requires the hardened libc++ that use_custom_libcxx provides, and
+    # says so itself:
+    #   ERROR at //BUILD.gn:878:1: Assertion failed.
+    #   assert(!v8_enable_sandbox || use_safe_libcxx,
+    #   The sandbox requires libc++ hardening
+    # v8_enable_sandbox defaults on for 64-bit, so asking for the system C++ library
+    # without also turning the sandbox off makes `gn gen` refuse outright. We build
+    # v8 as a monolithic static library to embed in doctrenderer, not as a browser
+    # renderer, so the sandbox is not something we rely on here.
+    args_copy.append("v8_enable_sandbox=false")
 
   return "--args=\"" + " ".join(args_copy) + "\""
 
