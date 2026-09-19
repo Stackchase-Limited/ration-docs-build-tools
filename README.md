@@ -1,258 +1,52 @@
-<h1>ONLYOFFICE Build Tools</h1>
+# Ration Docs - build_tools
 
-Welcome to the ```build_tools``` repository! This powerful toolkit simplifies the process of compiling [ONLYOFFICE](https://github.com/ONLYOFFICE) products from source on Linux.
+The build: fetches and compiles the third-party dependencies, builds every component in order, and assembles the payload the applications ship.
 
-It automatically fetches all the required dependencies and source code to build the latest versions of:
+Part of **[Ration Docs Desktop](https://github.com/Stackchase-Limited/ration-docs-desktop)**, an offline office suite maintained by Stackchase Limited. This repository is a modified version of [ONLYOFFICE/build_tools](https://github.com/ONLYOFFICE/build_tools), originally developed by Ascensio System SIA, forked at release 9.4.0.
 
-* [Docs (Document Server)](https://www.onlyoffice.com/docs?utm_source=github&utm_medium=cpc&utm_campaign=GitHubBuildTools)  
-* [Desktop Editors](https://www.onlyoffice.com/desktop?utm_source=github&utm_medium=cpc&utm_campaign=GitHubBuildTools)  
-* [Document Builder](https://www.onlyoffice.com/document-builder?utm_source=github&utm_medium=cpc&utm_campaign=GitHubBuildTools)
+## What lives here
 
-**A quick note:** For the most stable and reliable builds, we strongly recommend compiling from the ```master``` branch of this repository.
+`configure.py` writes the build configuration, `make.py` runs the build, and
+`scripts/core_common/modules/` holds one module per dependency - v8, CEF, ICU,
+boost, OpenSSL, hunspell and the rest.
 
-## **How do I use it on Linux? 🐧**
+`ARM64_DESKTOP_BUILD.md` documents the Linux arm64 build in detail: the packages
+the machine needs, and the failures that do not say what they mean.
 
->This guide has been tested and verified on:
+## Using it
 
-| Component     | Specification     |
-|---------------|-------------------|
-| OS            | Ubuntu 24.04      |
-| Architecture  | amd64             |
-| CPU           | 4 cores           |
-| RAM           | 8 GB              |
-| Swap          | 4 GB              |
-| Storage       | 100 GB SSD        |
+    git clone --recursive https://github.com/Stackchase-Limited/ration-docs-desktop.git
+    cd ration-docs-desktop/build_tools
+    python3 configure.py --module desktop --platform linux_arm64 --qt-dir /usr
+    python3 make.py
 
-### **Step 1: Install dependencies**
+Expect a long first build: v8, CEF, ICU, boost and OpenSSL are all compiled from
+source before any of our code is reached.
 
-First, let's make sure you have **Python** installed, as it's needed to run the build scripts.
+| | Minimum |
+|---|---|
+| Disk | 100 GB |
+| RAM | 8 GB, plus swap |
+| CPU | more cores is the difference between hours and many hours |
+| Python | 3, with a working `python3` on PATH |
 
-```bash
-sudo apt-get install -y python
-```
+Verified on macOS (Apple Silicon) and Ubuntu 24.04 arm64. The x86-64 paths are
+upstream's and are untouched, but this fork has not built them.
 
-### **Step 2: Build the source code**
+## Licence and attribution
 
-Now, you're ready to build the ONLYOFFICE products.
+Distributed under the **GNU Affero General Public License v3** together with the
+additional terms supplied with the original program; both are in `LICENSE`.
+Non-code elements - illustrations, icon sets, documentation - are **CC BY-SA 4.0**.
 
-1. **Clone the build_tools repository:**  
+    Copyright (C) Ascensio System SIA, 2009-2026
+    Copyright (C) Stackchase Limited, 2026
 
-    This command downloads the build tools to your machine using Git:
-   ```bash
-   git clone https://github.com/ONLYOFFICE/build_tools.git
-   ```
+This is a modified version of ONLYOFFICE software. The original was developed by
+Ascensio System SIA; modifications are by Stackchase Limited, 2026. **ONLYOFFICE is
+a trademark of Ascensio System SIA**, used here only to identify the software this
+is based on. Ration Docs is not produced by, endorsed by, or affiliated with
+Ascensio System SIA, and no trademark rights are granted by the licence.
 
-2. **Navigate to the scripts directory:**  
-   ```bash
-   cd build_tools/tools/linux
-   ```
-3. **Run the automation script:**  
-   
-   This is where the magic happens! Running the script without any options will build all three products: Document Server, Document Builder, and Desktop Editors.  
-
-   ```bash
-   python3 ./automate.py
-   ```
-You can also build ONLYOFFICE products separately. Just run the script with the parameter corresponding to the necessary product. For example, to build *Desktop Editors* and *Document Server*
-```bash
-python3 ./automate.py desktop server
-```
-
-**Perfect!** Once the script finishes, you will find the compiled products in the ```./out``` directory.
-
-## **Advanced options & different workflows 🚀**
-
-### **How to use Docker**
-
-If you prefer using Docker, you can build all products inside a container. This is a great way to keep your local system clean.
-
-1. **Install Docker** https://docs.docker.com/engine/install/
-
-2. **Clone the build_tools repository:**
-   ```bash
-   git clone https://github.com/ONLYOFFICE/build_tools.git
-    ```
-
-3. **Go to the build_tools:**
-   ```bash
-   cd build_tools
-    ```
-
-4. **Create an output directory:**  
-
-   ```bash
-   mkdir out
-    ```
-
-5. **Build the Docker image:**  
-
-   ```bash
-   docker build --tag onlyoffice-document-editors-builder .
-   ```
-
-6. **Run the container to start the build:** 
-   
-   This command mounts your local out directory into the container, so the final build files will appear on your machine. 
-
-   ```bash 
-   docker run -v $PWD/out:/build_tools/out onlyoffice-document-editors-builder
-    ```
-
-You've done it! The results will be in the ```./out``` directory you created.
-
-## **How to build and run the products separately ▶️**
-
-Don't need everything? You can save time by building only the products you need. Just add the product name as an argument to the script.
-
-### Need just the [Document Builder](https://github.com/ONLYOFFICE/DocumentBuilder)❓
-* How to build
-
-  ```bash
-  python3 ./automate.py builder
-  ```
-* How to run
-  ```bash
-  cd ../../out/linux_64/onlyoffice/documentbuilder
-  ./docbuilder
-  ```
-
-### Need just the [Desktop Editors](https://github.com/ONLYOFFICE/DesktopEditors)❓
-
-* How to build
-  ```bash
-  python3 ./automate.py desktop
-  ```
-* How to run
-  ```bash
-  cd ../../out/linux_64/onlyoffice/desktopeditors
-  LD_LIBRARY_PATH=./ ./DesktopEditors
-  ```
-
-### Need just the [Docs (Document Server)](https://github.com/ONLYOFFICE/DocumentServer)❓
-* How to build
-  ```bash
-  python3 ./automate.py server
-  ```
-* How to run
-
-  Running the Document Server is a multi-step process because it relies on a few background services. Let's break it down step by step. 
-
-#### **Step 1. Install and configure NGINX**
-
-1. Install NGINX  
-```bash
-sudo apt-get install nginx
-```
-2. Disable the default NGINX site
-```bash
-sudo rm -f /etc/nginx/sites-enabled/default
-```
-3. Set up the new website. To do that create the ```/etc/nginx/sites-available/onlyoffice-documentserver``` file with the following contents:
-
-```bash
-map $http_host $this_host {
-  "" $host;
-  default $http_host;
-}
-map $http_x_forwarded_proto $the_scheme {
-  default $http_x_forwarded_proto;
-  "" $scheme;
-}
-map $http_x_forwarded_host $the_host {
-  default $http_x_forwarded_host;
-  "" $this_host;
-}
-map $http_upgrade $proxy_connection {
-  default upgrade;
-  "" close;
-}
-proxy_set_header Host $http_host;
-proxy_set_header Upgrade $http_upgrade;
-proxy_set_header Connection $proxy_connection;
-proxy_set_header X-Forwarded-Host $the_host;
-proxy_set_header X-Forwarded-Proto $the_scheme;
-server {
-  listen 0.0.0.0:80;
-  listen [::]:80 default_server;
-  server_tokens off;
-  rewrite ^\/OfficeWeb(\/apps\/.*)$ /web-apps$1 redirect;
-  location / {
-    proxy_pass http://localhost:8000;
-    proxy_http_version 1.1;
-  }
-}
-```
-
-4. Enable the new site by creating a symbolic link  
-```bash
-sudo ln -s /etc/nginx/sites-available/onlyoffice-documentserver /etc/nginx/sites-enabled/onlyoffice-documentserver
-```
-5. Restart NGINX to apply the changes  
-```bash
-sudo nginx -s reload
-```
-
-#### **Step 2. Generate server files**
-
-Before running the server, you need to generate font and theme data.
-
-##### **Generate fonts data**
-
-```bash
-cd out/linux_64/onlyoffice/documentserver/
-mkdir fonts
-LD_LIBRARY_PATH=${PWD}/server/FileConverter/bin server/tools/allfontsgen \
-  --input="${PWD}/core-fonts" \
-  --allfonts-web="${PWD}/sdkjs/common/AllFonts.js" \
-  --allfonts="${PWD}/server/FileConverter/bin/AllFonts.js" \
-  --images="${PWD}/sdkjs/common/Images" \
-  --selection="${PWD}/server/FileConverter/bin/font_selection.bin" \
-  --output-web='fonts' \
-  --use-system="true"
-```
-
-##### **Generate presentation themes**
-```bash
-cd out/linux_64/onlyoffice/documentserver/
-LD_LIBRARY_PATH=${PWD}/server/FileConverter/bin server/tools/allthemesgen \
-  --converter-dir="${PWD}/server/FileConverter/bin"\
-  --src="${PWD}/sdkjs/slide/themes"\
-  --output="${PWD}/sdkjs/common/Images"
-```
-
-#### **Step 3. Run the Document Server services**
-
-All Document Server components run as foreground processes. Thus you need separate terminal consoles to run them or specific tools which will allow to run foreground processes in background mode.
-
-* **Start the FileConverter service:**  
-  ```bash
-  cd out/linux_64/onlyoffice/documentserver/server/FileConverter
-  LD_LIBRARY_PATH=$PWD/bin \
-  NODE_ENV=development-linux \
-  NODE_CONFIG_DIR=$PWD/../Common/config \
-  ./converter
-  ```
-
-* **Start the DocService service:**  
-  ```bash
-  cd out/linux_64/onlyoffice/documentserver/server/DocService
-  NODE_ENV=development-linux \
-  NODE_CONFIG_DIR=$PWD/../Common/config \
-  ./docservice
-  ```
-
-## And it's a wrap!  🎉
-Congratulations! You have successfully used the ```build_tools``` to compile your desired ONLYOFFICE products from the latest source code. 
-
-Everything is now set up. You can go ahead and run your brand-new, self-compiled ONLYOFFICE applications. 
-
-## Need help or have an idea? 💡
-
-* **🐞 Found a bug?** Please report it by creating an [issue](https://github.com/ONLYOFFICE/build_tools/issues).
-* **❓ Have a question?** Ask our community and developers on the [ONLYOFFICE Forum](https://community.onlyoffice.com).
-* **💡 Want to suggest a feature?** Share your ideas on our [feedback platform](https://feedback.onlyoffice.com/forums/966080-your-voice-matters).
-* **🧑‍💻 Need help for developers?** Check our [API documentation](https://api.onlyoffice.com/?utm_source=github&utm_medium=cpc&utm_campaign=GitHubBuildTools).
-
----
-
-<p align="center"> Made with ❤️ by the ONLYOFFICE Team </p>
+The corresponding source for a released binary is the superproject at the matching
+tag, with this repository at the commit that tag records.
