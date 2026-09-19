@@ -207,14 +207,20 @@ def make():
         if not base.check_congig_option_with_platfom(platform, "libvlc"):
           base.copy_files(base.get_env("QT_DEPLOY") + "/../lib/libqgsttools_p.so*", root_dir)
 
+      # The qmake TARGET is RationDocs now (desktop-apps 91f35a77e onward), so the
+      # built file is RationDocs[.exe]. The Windows layout keeps its own shape - the
+      # user-facing DesktopEditors.exe is projicons.exe, a stub that exists only to
+      # carry the file-type icons, and the real application is deployed as
+      # editors.exe - so only the source name changes here; renaming the two
+      # deployed names belongs with the Windows pass, which has not been built yet.
       if (0 == platform.find("win")):
         base.copy_file(git_dir + "/desktop-apps/win-linux/extras/projicons/" + apps_postfix + "/projicons.exe", root_dir + "/DesktopEditors.exe")
         if not isWindowsXP:
           base.copy_file(git_dir + "/desktop-apps/win-linux/extras/update-daemon/" + apps_postfix + "/updatesvc.exe", root_dir + "/updatesvc.exe")
-        base.copy_file(git_dir + "/desktop-apps/win-linux/" + apps_postfix + "/DesktopEditors.exe", root_dir + "/editors.exe")
+        base.copy_file(git_dir + "/desktop-apps/win-linux/" + apps_postfix + "/RationDocs.exe", root_dir + "/editors.exe")
         base.copy_file(git_dir + "/desktop-apps/win-linux/res/icons/desktopeditors.ico", root_dir + "/app.ico")
       elif (0 == platform.find("linux")):
-        base.copy_file(git_dir + "/desktop-apps/win-linux/" + apps_postfix + "/DesktopEditors", root_dir + "/DesktopEditors")
+        base.copy_file(git_dir + "/desktop-apps/win-linux/" + apps_postfix + "/RationDocs", root_dir + "/RationDocs")
 
       if base.check_congig_option_with_platfom(platform, "libvlc"):
         vlc_dir = git_dir + "/core/Common/3dParty/libvlc/build/" + platform + "/lib"
