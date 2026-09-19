@@ -85,12 +85,20 @@ make_common.make()
 
 # build updmodule for desktop (only for windows version)
 if config.check_option("module", "desktop"):
-  config.extend_option("qmake_addon", "URL_WEBAPPS_HELP=https://download.onlyoffice.com/install/desktop/editors/help/v" + base.get_env('PRODUCT_VERSION') + "/apps")
-
-  if "windows" == base.host_platform():
-    config.extend_option("config", "updmodule")
-    base.set_env("DESKTOP_URL_UPDATES_MAIN_CHANNEL", "https://download.onlyoffice.com/install/desktop/editors/windows/onlyoffice/appcast.json")
-    base.set_env("DESKTOP_URL_UPDATES_DEV_CHANNEL", "https://download.onlyoffice.com/install/desktop/editors/windows/onlyoffice/appcastdev.json")
+  # No URL_WEBAPPS_HELP. It pointed at
+  #   https://download.onlyoffice.com/install/desktop/editors/help/v<version>/apps
+  # which is ONLYOFFICE's help bundle for an ONLYOFFICE version number. We ship no
+  # help bundle and our versions are on a different scheme, so the URL would be both
+  # somebody else's site and a 404. utils.cpp only sets helpUrl when this is
+  # non-empty, so leaving it unset is the supported way to have no help link.
+  #
+  # And no update channels. Those two lines pointed the updater at ONLYOFFICE's
+  # appcast: a Windows build of this fork would have polled their feed and offered
+  # their installer as an update to our product. That is not a branding detail - it
+  # would hand users a different application. Windows needs an appcast of ours
+  # before the update module can be switched back on, which is why updmodule is off
+  # with them.
+  pass
 
 # build
 build_sln.make()
