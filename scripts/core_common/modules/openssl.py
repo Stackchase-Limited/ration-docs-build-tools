@@ -88,6 +88,22 @@ def make():
     return
 
   if (-1 != config.option("platform").find("linux")) and not base.is_dir("../build/linux_64"):     
+    # OpenSSL builds in-source. icu and boost write to platform-named output
+    # directories, so a tree shared between hosts keeps their results apart;
+    # OpenSSL leaves its .o and .a files next to the sources, where make judges
+    # them up to date on any host. A tree last built on macOS therefore hands a
+    # Linux build a Mach-O libssl.a and apps/libapps.a while libcrypto.a alone
+    # gets rebuilt as ELF, and ld reports undefined references to symbols that
+    # do exist - BIO_printf, OPENSSL_LH_strhash, opt_progname - merely in the
+    # wrong object format. The guard above tests only whether build/linux_64
+    # exists, which says nothing about what host produced the objects.
+    #
+    # Cleaning after install (below) helps only the build that gets that far.
+    # Clean before configuring too, so a tree carried over from another host
+    # cannot poison the link. Errors are ignored: a pristine checkout has no
+    # Makefile, and one left by a foreign host need not be runnable here.
+    if base.is_file("./Makefile"):
+      base.cmd("make", ["clean"], True)
     base.cmd("./config", ["enable-md2", "no-shared", "no-asm", "--prefix=" + old_cur_dir + "/build/linux_64", "--openssldir=" + old_cur_dir + "/build/linux_64"])
     if "1" == config.option("use-clang"):
       base.replaceInFile("./Makefile", "CC=$(CROSS_COMPILE)gcc", "CC=$(CROSS_COMPILE)clang")
