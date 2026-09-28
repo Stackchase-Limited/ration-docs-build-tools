@@ -133,7 +133,14 @@ def make():
         command_configure = "CXXFLAGS=-stdlib=libc++ " + command_configure
         command_compile_addon = "-stdlib=libc++"
       if "" == config.option("sysroot"):
-        base.cmd(command_configure, ["Linux", "--prefix=" + base_dir + "/icu/cross_build_install"])
+        # Both edits below rewrite configure's INPUT templates, so they have to
+        # run BEFORE runConfigureICU, not after it. configure generates
+        # cross_build/data/pkgdataMakefile and the icudefs from these templates;
+        # a patch applied afterwards lands in the template only and never reaches
+        # the generated copy that make actually reads. The symptom was a clean
+        # checkout failing its first build on the dangling -Wl, described below
+        # and then succeeding on the second, once configure re-ran over an
+        # already-patched template.
         # Idempotent: this whole block is guarded by "linux_64 does not exist yet",
         # so every failed-and-retried build ran it again and appended another copy
         # of the flags - after three attempts the link line carried
@@ -163,6 +170,8 @@ def make():
         # creates the libicudata.so.74 and libicudata.so symlinks, and nothing
         # loads it by SONAME.
         base.replaceInFile("./../source/data/pkgdataMakefile.in", "@echo LD_SONAME=$(LD_SONAME) >> $(OUTPUTFILE)", "@echo LD_SONAME= >> $(OUTPUTFILE)")
+
+        base.cmd(command_configure, ["Linux", "--prefix=" + base_dir + "/icu/cross_build_install"])
       else:
         base.set_sysroot_env("linux_64") 
         sysroot_path = config.option("sysroot_linux_64")
