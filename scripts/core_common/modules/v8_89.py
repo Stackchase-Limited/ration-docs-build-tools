@@ -601,10 +601,25 @@ def make():
   #   ImportError: cannot import name 'Mapping' from 'collections'
   # Same shape as the v8 pin that only ran on first fetch: a marker standing in
   # for the state it is meant to describe.
-  if -1 != base.readFile("v8/third_party/jinja2/tests.py").find("from collections import Mapping"):
-    if not base.is_file("v8/third_party/jinja2/tests.py.bak"):
-      base.copy_file("v8/third_party/jinja2/tests.py", "v8/third_party/jinja2/tests.py.bak")
-    base.replaceInFile("v8/third_party/jinja2/tests.py", "from collections import Mapping", "try:\n    from collections.abc import Mapping\nexcept ImportError:\n    from collections import Mapping")
+  #
+  # The match is the UNINDENTED import line only. The replacement keeps
+  # "from collections import Mapping" as its indented fallback, so a plain
+  # substring test matched our own output and every re-run wrapped the import
+  # in one more try: block - the second run died with
+  #   IndentationError: expected an indented block after 'try' statement
+  # A tree already damaged that way is put back from the .bak first.
+  jinja_tests = "v8/third_party/jinja2/tests.py"
+  if base.is_file(jinja_tests):
+    if -1 != base.readFile(jinja_tests).find("    try:\n    from collections.abc") and base.is_file(jinja_tests + ".bak"):
+      base.copy_file(jinja_tests + ".bak", jinja_tests)
+    jinja_src = base.readFile(jinja_tests)
+    if re.search(r"^from collections import Mapping$", jinja_src, re.M):
+      if not base.is_file(jinja_tests + ".bak"):
+        base.copy_file(jinja_tests, jinja_tests + ".bak")
+      jinja_src = re.sub(r"^from collections import Mapping$",
+                         "try:\n    from collections.abc import Mapping\nexcept ImportError:\n    from collections import Mapping",
+                         jinja_src, count=1, flags=re.M)
+      base.writeFile(jinja_tests, jinja_src)
 
   os.chdir("v8")
 
