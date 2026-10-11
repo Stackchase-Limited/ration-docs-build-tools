@@ -282,6 +282,15 @@ def make_args(args, platform, is_64=True, is_debug=False):
     args_copy.append("v8_enable_temporal_support=false")
 
     clang_prefix = system_clang_prefix()
+    if clang_prefix is None:
+      # The bundled clang is x86-64, so leaving gn on it here cannot work: it
+      # surfaces only after the whole v8 fetch, as "Exec format error" (or, in
+      # Docker Desktop, "rosetta error: failed to open elf at
+      # /lib64/ld-linux-x86-64.so.2") on the first compile. Say why instead.
+      print("v8: no usable system clang for linux arm64. Install clang, lld and "
+            "compiler-rt (Ubuntu: libclang-rt-<N>-dev, which provides "
+            "lib/linux/libclang_rt.builtins-aarch64.a under `clang -print-resource-dir`).")
+      sys.exit(1)
     if clang_prefix is not None:
       args_copy.append("clang_base_path=\\\"" + clang_prefix[0] + "\\\"")
       args_copy.append("clang_version=\\\"" + clang_prefix[1] + "\\\"")
