@@ -165,11 +165,17 @@ def make():
         # data" and looks like a data-generation problem rather than a link flag.
         #
         # pkgdata handles an empty LD_SONAME explicitly - it then omits the name
-        # as well - so blanking it is the supported way out. The resulting
-        # libicudata carries no SONAME, which is harmless here: pkgdata still
-        # creates the libicudata.so.74 and libicudata.so symlinks, and nothing
-        # loads it by SONAME.
+        # as well - so blanking it is the supported way out. But the SONAME
+        # itself is not optional: without one, ld records libicudata by the
+        # path it was given, so x2t, allfontsgen, allthemesgen,
+        # libUnicodeConverter and libStarMathConverter carried NEEDED
+        #   /src/core/Common/3dParty/icu/linux_arm64/build/libicudata.so.74
+        # and could not load anywhere but the build tree (in the server image:
+        # font generation printed "Done" having generated nothing, and every
+        # conversion failed). So the SONAME goes back in through LDICUDTFLAGS,
+        # as one comma-joined token pkgdata cannot split.
         base.replaceInFile("./../source/data/pkgdataMakefile.in", "@echo LD_SONAME=$(LD_SONAME) >> $(OUTPUTFILE)", "@echo LD_SONAME= >> $(OUTPUTFILE)")
+        base.replaceInFile("./../source/data/pkgdataMakefile.in", "@echo LDICUDTFLAGS=$(LDFLAGSICUDT) >> $(OUTPUTFILE)", "@echo LDICUDTFLAGS=$(LDFLAGSICUDT) -Wl,-soname,libicudata.so.$(SO_TARGET_VERSION_MAJOR) >> $(OUTPUTFILE)")
 
         base.cmd(command_configure, ["Linux", "--prefix=" + base_dir + "/icu/cross_build_install"])
       else:
