@@ -12,7 +12,7 @@ def make():
 
   base_dir = base.get_script_dir() + "/../../core/Common/3dParty/md"
  
-  base.cmd_in_dir(base_dir, "env", ["PYTHONPATH=" + base.get_script_dir(), base.python_exe(), "fetch.py"])
+  base.cmd_python(base_dir, ["fetch.py"])
   return
 
 if __name__ == '__main__':

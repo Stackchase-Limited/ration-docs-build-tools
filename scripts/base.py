@@ -495,6 +495,25 @@ def python_exe():
   """
   return sys.executable
 
+def cmd_python(directory, script_args, is_no_errors=False):
+  """Run a build script under python_exe() in `directory`, with this scripts
+  directory on PYTHONPATH so the script can `import base`.
+
+  These used to run as `env PYTHONPATH=<scripts> <python> <script>`, which needs a
+  Unix `env` and so failed every Windows build ("'env' is not recognized"). Setting
+  the variable in our own environment for the duration of the call is the portable
+  equivalent: the child inherits it on every host.
+  """
+  old = os.environ.get("PYTHONPATH")
+  os.environ["PYTHONPATH"] = get_script_dir()
+  try:
+    return cmd_in_dir(directory, python_exe(), script_args, is_no_errors)
+  finally:
+    if old is None:
+      del os.environ["PYTHONPATH"]
+    else:
+      os.environ["PYTHONPATH"] = old
+
 def run_command(sCommand):
   popen = subprocess.Popen(sCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
   result = {'stdout' : '', 'stderr' : '', 'returncode' : 0}
