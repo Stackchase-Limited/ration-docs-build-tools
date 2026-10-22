@@ -1673,12 +1673,22 @@ def copy_sdkjs_plugins_server(dst_dir, is_name_as_guid=False, is_desktop_local=F
     copy_sdkjs_plugin(plugins_dir, dst_dir, name, is_name_as_guid, is_desktop_local)
   return
 
+def copy_plugins_api(out_dir):
+  """Put the plugin-side API (plugins.js, plugins-ui.js, plugins.css) in out_dir.
+
+  These used to be downloaded from https://onlyoffice.github.io/sdkjs-plugins/v1/ at
+  every deploy. Ration Docs builds only from its own repositories, so they are
+  vendored in vendor/sdkjs-plugins/v1 (see the README there for their origin).
+  """
+  src = __file__script__path__ + "/../vendor/sdkjs-plugins/v1"
+  create_dir(out_dir)
+  for name in ("plugins.js", "plugins-ui.js", "plugins.css"):
+    copy_file(src + "/" + name, out_dir + "/" + name)
+
 def support_old_versions_plugins(out_dir):
   if is_file(out_dir + "/pluginBase.js"):
     return
-  download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.js", out_dir + "/plugins.js")
-  download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins-ui.js", out_dir + "/plugins-ui.js")
-  download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.css", out_dir + "/plugins.css")
+  copy_plugins_api(out_dir)
   content_plugin_base = ""
   with open(get_path(out_dir + "/plugins.js"), "r") as file:
     content_plugin_base += file.read()

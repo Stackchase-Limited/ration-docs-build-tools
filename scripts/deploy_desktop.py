@@ -207,14 +207,13 @@ def make():
         if not base.check_congig_option_with_platfom(platform, "libvlc"):
           base.copy_files(base.get_env("QT_DEPLOY") + "/../lib/libqgsttools_p.so*", root_dir)
 
-      # The qmake TARGET is RationDocs now (desktop-apps 91f35a77e onward), so the
-      # built file is RationDocs[.exe]. The Windows layout keeps its own shape - the
-      # user-facing DesktopEditors.exe is projicons.exe, a stub that exists only to
-      # carry the file-type icons, and the real application is deployed as
-      # editors.exe - so only the source name changes here; renaming the two
-      # deployed names belongs with the Windows pass, which has not been built yet.
+      # The qmake TARGET is RationDocs (desktop-apps 91f35a77e onward). On Windows the
+      # user-facing RationDocs.exe is projicons.exe, a stub that carries the file-type
+      # icons and starts the real application, which is deployed as editors.exe. The
+      # stub was DesktopEditors.exe until the Windows pass; desktop-apps' installer
+      # (iconsExe), relaunch, association and update code name it REG_APP_NAME.exe.
       if (0 == platform.find("win")):
-        base.copy_file(git_dir + "/desktop-apps/win-linux/extras/projicons/" + apps_postfix + "/projicons.exe", root_dir + "/DesktopEditors.exe")
+        base.copy_file(git_dir + "/desktop-apps/win-linux/extras/projicons/" + apps_postfix + "/projicons.exe", root_dir + "/RationDocs.exe")
         if not isWindowsXP:
           base.copy_file(git_dir + "/desktop-apps/win-linux/extras/update-daemon/" + apps_postfix + "/updatesvc.exe", root_dir + "/updatesvc.exe")
         base.copy_file(git_dir + "/desktop-apps/win-linux/" + apps_postfix + "/RationDocs.exe", root_dir + "/editors.exe")
@@ -262,7 +261,10 @@ def make():
     base.copy_dir(git_dir + "/desktop-sdk/ChromiumBasedEditors/resources/local", root_dir + "/editors/sdkjs/common/Images/local")
 
     base.create_dir(root_dir + "/editors/sdkjs-plugins")
-    if not isWindowsXP:
+    # The marketplace is ONLYOFFICE's plugin store: deploying it clones their
+    # onlyoffice.github.io repository, and at run time it lists plugins from their
+    # site. Ration Docs ships without it unless desktop-marketplace="1" is configured.
+    if not isWindowsXP and "1" == config.option("desktop-marketplace"):
       base.copy_marketplace_plugin(root_dir + "/editors/sdkjs-plugins", True, True, True)
     base.copy_sdkjs_plugins(root_dir + "/editors/sdkjs-plugins", True, True, isWindowsXP)
     # remove some default plugins
@@ -270,10 +272,7 @@ def make():
       base.delete_dir(root_dir + "/editors/sdkjs-plugins/speech")
 
     # io
-    base.create_dir(root_dir + "/editors/sdkjs-plugins/v1")
-    base.download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.js", root_dir + "/editors/sdkjs-plugins/v1/plugins.js")
-    base.download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins-ui.js", root_dir + "/editors/sdkjs-plugins/v1/plugins-ui.js")
-    base.download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.css", root_dir + "/editors/sdkjs-plugins/v1/plugins.css")
+    base.copy_plugins_api(root_dir + "/editors/sdkjs-plugins/v1")
     base.support_old_versions_plugins(root_dir + "/editors/sdkjs-plugins")
 
     base.copy_sdkjs_plugin(git_dir + "/desktop-sdk/ChromiumBasedEditors/plugins/encrypt", root_dir + "/editors/sdkjs-plugins", "advanced2", True)

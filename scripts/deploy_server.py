@@ -139,10 +139,7 @@ def make():
       base.copy_sdkjs_plugins_server(js_dir + "/sdkjs-plugins", False, True)
     else:
       base.generate_sdkjs_plugin_list(js_dir + "/sdkjs-plugins/plugin-list-default.json")
-    base.create_dir(js_dir + "/sdkjs-plugins/v1")
-    base.download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.js", js_dir + "/sdkjs-plugins/v1/plugins.js")
-    base.download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins-ui.js", js_dir + "/sdkjs-plugins/v1/plugins-ui.js")
-    base.download("https://onlyoffice.github.io/sdkjs-plugins/v1/plugins.css", js_dir + "/sdkjs-plugins/v1/plugins.css")
+    base.copy_plugins_api(js_dir + "/sdkjs-plugins/v1")
     base.support_old_versions_plugins(js_dir + "/sdkjs-plugins")
 
     # tools
