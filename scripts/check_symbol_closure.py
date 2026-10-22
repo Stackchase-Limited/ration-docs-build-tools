@@ -32,8 +32,10 @@ loader to resolve every relocation, which answers exactly that question.
   exit 0 = closed, exit 1 = at least one import is unresolved.
 """
 
+import functools
 import os
 import re
+import struct
 import subprocess
 import sys
 
@@ -42,9 +44,83 @@ import sys
 FOREIGN = {
     'std', '__gnu_cxx', '__cxxabiv1', 'boost', 'google', 'v8', 'icu',
     'absl', 'cef', 'Cef', 'testing', 'QT', 'Qt', 'zip', 'nlohmann',
+    # MSVC runtime and SDK namespaces (Windows payloads).
+    'stdext', 'Concurrency', 'ATL', 'Microsoft', 'Windows', 'winrt',
 }
 
 MACHO = sys.platform == 'darwin'
+
+
+# Windows payloads are PE files, which nm/objdump/ldd do not read, so the import and
+# export tables are read directly. Only by-name imports matter here: our modules
+# import each other's C++ symbols by decorated name, never by ordinal.
+@functools.lru_cache(maxsize=None)
+def _pe(path):
+    """(imports {dll: set(names)}, exports set(names)) of a PE image, or None."""
+    try:
+        with open(path, 'rb') as f:
+            data = f.read()
+    except OSError:
+        return None
+    if data[:2] != b'MZ' or len(data) < 0x40:
+        return None
+    pe = struct.unpack_from('<I', data, 0x3C)[0]
+    if data[pe:pe + 4] != b'PE\0\0':
+        return None
+    nsect, = struct.unpack_from('<H', data, pe + 6)
+    optsize, = struct.unpack_from('<H', data, pe + 20)
+    opt = pe + 24
+    magic, = struct.unpack_from('<H', data, opt)
+    pe64 = magic == 0x20b
+    ddir = opt + (112 if pe64 else 96)
+    sections = []
+    for i in range(nsect):
+        o = opt + optsize + 40 * i
+        vsize, va, rawsize, raw = struct.unpack_from('<IIII', data, o + 8)
+        sections.append((va, max(vsize, rawsize), raw))
+
+    def off(rva):
+        for va, size, raw in sections:
+            if va <= rva < va + size:
+                return rva - va + raw
+        return None
+
+    def cstr(o):
+        end = data.index(b'\0', o)
+        return data[o:end].decode('latin-1')
+
+    def directory(i):
+        return struct.unpack_from('<II', data, ddir + 8 * i)
+
+    exports = set()
+    rva, size = directory(0)
+    o = off(rva) if size else None
+    if o is not None:
+        nnames, names_rva = struct.unpack_from('<I', data, o + 24)[0], struct.unpack_from('<I', data, o + 32)[0]
+        no = off(names_rva)
+        for k in range(nnames if no is not None else 0):
+            exports.add(cstr(off(struct.unpack_from('<I', data, no + 4 * k)[0])))
+
+    imports = {}
+    rva, size = directory(1)
+    o = off(rva) if size else None
+    while o is not None:
+        oft, _ts, _fc, name_rva, ft = struct.unpack_from('<IIIII', data, o)
+        if not (oft or name_rva or ft):
+            break
+        dll = cstr(off(name_rva))
+        names = imports.setdefault(dll, set())
+        t = off(oft or ft)
+        step, ordinal = (8, 1 << 63) if pe64 else (4, 1 << 31)
+        while t is not None:
+            v = struct.unpack_from('<Q' if pe64 else '<I', data, t)[0]
+            if not v:
+                break
+            if not v & ordinal:
+                names.add(cstr(off(v & 0x7fffffff) + 2))
+            t += step
+        o += 20
+    return imports, exports
 
 
 def is_module(path):
@@ -57,6 +133,8 @@ def is_module(path):
         return False
     if magic[:4] == b'\x7fELF':
         return True
+    if magic[:2] == b'MZ':
+        return _pe(path) is not None
     return magic in (b'\xcf\xfa\xed\xfe', b'\xce\xfa\xed\xfe',
                      b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca')
 
@@ -71,6 +149,9 @@ def nm(args, path):
 
 
 def imports(path):
+    info = _pe(path)
+    if info is not None:
+        return set().union(*info[0].values()) if info[0] else set()
     if MACHO:
         lines = nm(['-u'], path)
         return {ln.strip() for ln in lines if ln.strip().startswith('_')}
@@ -83,6 +164,9 @@ def imports(path):
 
 
 def exports(path):
+    info = _pe(path)
+    if info is not None:
+        return set(info[1])
     out = set()
     if MACHO:
         for ln in nm(['-gU'], path):
@@ -104,8 +188,29 @@ def exports(path):
 _ITANIUM = re.compile(r'^_?_Z(?:T[VTIS])?N(\d+)(\w+)')
 
 
+def _msvc_top_level(symbol):
+    """Outermost scope of an MSVC-decorated name: `?Encode@CBase64Converter@NSFile@@...`
+    lists scopes innermost-first, so it is the last component before `@@`. Special
+    members (`??0Class@@` constructors, `??_GClass@@` deleting destructors, operators)
+    carry their scope straight after the operator code. Templates and other nested
+    forms are skipped rather than guessed at."""
+    s = symbol[1:]
+    special = s.startswith('?')
+    if special:
+        s = s[1:]
+        s = s[2:] if s.startswith('_') else s[1:]
+    comps = s.split('@@', 1)[0].split('@')
+    if not comps or not comps[0] or any(c[:1] in ('?', '$') for c in comps):
+        return None
+    if not special and len(comps) < 2:
+        return None
+    return comps[-1]
+
+
 def top_level(symbol):
     """First namespace or class component of a C++ symbol, or None if unqualified."""
+    if symbol.startswith('?'):
+        return _msvc_top_level(symbol)
     m = _ITANIUM.match(symbol)
     if not m:
         return None
@@ -156,6 +261,9 @@ def check(root):
 
 def dependencies(path):
     """Libraries this module asks the loader for, by basename."""
+    info = _pe(path)
+    if info is not None:
+        return set(info[0])
     out = set()
     if MACHO:
         try:
@@ -216,6 +324,7 @@ def check_libraries(root):
     if not any(isQt(name) for name in shipped):
         return []
 
+    shipped_lower = {name.lower() for name in shipped}  # Windows names are case-insensitive
     failures = []
     for p in sorted(modules):
         for dep in sorted(dependencies(p)):
@@ -223,7 +332,7 @@ def check_libraries(root):
                 continue
             stem = dep.replace('lib', '', 1) if dep.startswith('lib') else dep
             stem = stem.split('.')[0]
-            if stem in shipped or dep in shipped:
+            if stem in shipped or dep in shipped or dep.lower() in shipped_lower:
                 continue
             failures.append((os.path.relpath(p, root), dep))
     return failures
@@ -248,9 +357,11 @@ def check_runtime(root):
     `ldd -r` answers exactly this question - it asks the real loader to resolve every
     relocation - so that is what this uses, with the payload's own directories on the
     search path. ELF only; there is no equivalent that is cheap on Mach-O, and dyld's
-    two-level namespace makes this failure mode far less likely there.
+    two-level namespace makes this failure mode far less likely there, and none on
+    Windows, where the loader has no -static-libstdc++ equivalent and resolves imports
+    per DLL by name - which check() already covers.
     """
-    if MACHO:
+    if MACHO or os.name == 'nt':
         return []
 
     modules = []
