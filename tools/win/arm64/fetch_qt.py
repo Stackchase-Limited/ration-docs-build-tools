@@ -1,20 +1,23 @@
-import sys
-import os
-sys.path.append('../../../scripts')
+"""Provide the win_arm64 Qt in qt_build/Qt-5.15.2/win_arm64.
 
-import base
+This used to download qt_binary_win_arm64.7z from ONLYOFFICE-data. That prebuilt Qt
+crashes in every Qt program (QObjectPrivate::addConnection; see build_qt.py), so it is
+no longer used: Qt is built from the official source by build_qt.py instead.
+"""
+
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+import build_qt
+
 
 def make():
-  qt_build_path = os.path.dirname(os.path.abspath(__file__)) + "/qt_build/Qt-5.15.2"
-  qt_binary_url = "https://github.com/ONLYOFFICE-data/build_tools_data/raw/refs/heads/master/qt/qt_binary_win_arm64.7z"
-  
-  if not base.is_file("./qt_binary_win_arm64.7z"):
-    base.download(qt_binary_url, "./qt_binary_win_arm64.7z")
-    
-  if not base.is_dir(qt_build_path):
-    os.makedirs(qt_build_path)
-    base.extract("./qt_binary_win_arm64.7z", qt_build_path)
+  if os.path.isfile(build_qt.PREFIX + "/bin/Qt5Core.dll"):
+    return
+  build_qt.make()
+
 
 if __name__ == "__main__":
-  base.configure_common_apps()
   make()
