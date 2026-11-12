@@ -82,11 +82,27 @@ def fix_ubuntu24():
   #if not is_ubuntu_24_or_higher():
   #  return
 
-  if "" == config.option("sysroot"):
+  # The bundled clang 12 ships its own 2021 libstdc++.so.6 in lib/ and adds that
+  # directory to the link search path, so it is not only clang's runtime: lld
+  # also resolves the C++ library of everything it links there. Without a sysroot
+  # (x86-64 Linux with sysroot="0", which is how the linux_64 build runs on
+  # Ubuntu 24.04) the inputs are the host's own libraries, and the first host
+  # tool fails to link:
+  #   ld.lld: .../llvm-build/Release+Asserts/bin/../lib/libstdc++.so.6:
+  #   version `GLIBCXX_3.4.30' not found (required by /lib/x86_64-linux-gnu/libicuuc.so.74)
+  # So the swap is needed whenever the bundled clang links against host libraries,
+  # not only with a sysroot. ARM hosts without a sysroot use the system clang
+  # (system_clang_prefix) and never touch this directory.
+  if "" == config.option("sysroot") and base.is_os_arm():
     return
 
   old_cur = os.getcwd()
   os.chdir("third_party/llvm-build/Release+Asserts/lib")
+  # Swap once: on a re-run the file is already our symlink, and moving that
+  # aside would leave clang with no libstdc++ at all.
+  if os.path.islink("libstdc++.so.6") or not os.path.isfile("libstdc++.so.6"):
+    os.chdir(old_cur)
+    return
   base.cmd("mv", ["libstdc++.so.6", "libstdc++.so.6.old"])
   # The multiarch directory is per-architecture; hardcoding the x86_64 one makes
   # this a dangling symlink on any other host.
