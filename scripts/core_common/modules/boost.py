@@ -55,8 +55,13 @@ def apply_patches(base_dir):
     base_dir + "/build/mac_64/include/boost/mpl/aux_/integral_wrapper.hpp",
     base_dir + "/build/mac_arm64/include/boost/mpl/aux_/integral_wrapper.hpp"
   ]
+  patch_content = base.readFile(mpl_patch)
+  unpatched = patch_content[patch_content.find("<<<<<<<") + 7:patch_content.find("=======")].strip()
   for target in mpl_targets:
-    if base.is_file(target):
+    # Rewrite a header only while it still holds the unpatched text. base.apply_patch
+    # rewrites the file on every run, which bumps the mtime of a header that nearly
+    # all of core includes and so forces a full core rebuild each time.
+    if base.is_file(target) and (-1 != base.readFile(target).find(unpatched)):
       base.apply_patch(target, mpl_patch)
   return
 
