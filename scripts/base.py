@@ -10,6 +10,7 @@ import subprocess
 import sys
 import config
 import codecs
+import time
 import re
 import stat
 import json
@@ -172,7 +173,19 @@ def delete_file(path):
   return os.remove(get_path(path))
 
 def delete_exe(path):
-  return os.remove(get_path(path) + (".exe" if "windows" == host_platform() else ""))
+  file = get_path(path) + (".exe" if "windows" == host_platform() else "")
+  # On Windows a program that has only just exited can stay locked for a moment
+  # (process teardown, Defender scanning it) - winbuild001's x64 build failed with
+  # "Access is denied" deleting allthemesgen.exe right after running it. Retry
+  # briefly before giving up.
+  attempts = 30 if "windows" == host_platform() else 1
+  for attempt in range(attempts):
+    try:
+      return os.remove(file)
+    except PermissionError:
+      if attempt == attempts - 1:
+        raise
+      time.sleep(1)
 
 def find_file(path, pattern):
   for root, dirnames, filenames in os.walk(path):
