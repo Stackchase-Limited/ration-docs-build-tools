@@ -10,6 +10,7 @@ import base
 import config
 import android_ndk
 import multiprocessing
+import shutil
 
 def get_make_file_suffix(platform):
   suffix = platform
@@ -163,9 +164,18 @@ def make(platform, project, qmake_config_addon="", is_no_errors=False):
       qmake_bat.append("call nmake " + " ".join(clean_params))
       qmake_bat.append("call nmake " + " ".join(distclean_params))
       qmake_bat.append("call \"" + qmake_app + "\" -nocache " + file_pro + config_params_string + qmake_addon_string)
-    if ("0" != config.option("multiprocess")):
-      qmake_bat.append("set CL=/MP")
-    qmake_bat.append("call nmake -f " + makefile)
+    # jom (Qt's parallel nmake) when it is on PATH: nmake runs one cl at a time, and
+    # qmake's one-file-per-rule makefiles give cl's /MP nothing to share out, so a
+    # Windows core build otherwise uses a single core. RD_JOM_JOBS caps the jobs
+    # (each cl can take ~1 GB; a 16 GB machine wants about 12).
+    jom_app = shutil.which("jom") if ("0" != config.option("multiprocess")) else None
+    if jom_app:
+      jom_jobs = os.environ.get("RD_JOM_JOBS", str(multiprocessing.cpu_count()))
+      qmake_bat.append("call \"" + jom_app + "\" -j " + jom_jobs + " -f " + makefile)
+    else:
+      if ("0" != config.option("multiprocess")):
+        qmake_bat.append("set CL=/MP")
+      qmake_bat.append("call nmake -f " + makefile)
     base.run_as_bat(qmake_bat, is_no_errors)
 
   if (base.is_file(stash_file)):
