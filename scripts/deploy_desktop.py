@@ -205,7 +205,10 @@ def make():
         base.qt_copy_lib("Qt5XcbQpa", root_dir)
         base.qt_copy_icu(root_dir, platform)
         if not base.check_congig_option_with_platfom(platform, "libvlc"):
-          base.copy_files(base.get_env("QT_DEPLOY") + "/../lib/libqgsttools_p.so*", root_dir)
+          for lib_dir in base.qt_install_dirs("lib"):
+            if glob.glob(lib_dir + "/libqgsttools_p.so*"):
+              base.copy_files(lib_dir + "/libqgsttools_p.so*", root_dir)
+              break
 
       # The qmake TARGET is RationDocs (desktop-apps 91f35a77e onward). On Windows the
       # user-facing RationDocs.exe is projicons.exe, a stub that carries the file-type

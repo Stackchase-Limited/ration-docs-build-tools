@@ -985,6 +985,49 @@ def qt_config_as_param(value):
       ret_params.append("CONFIG+=" + name)
   return ret_params
 
+# Where Qt keeps its libraries, plugins and QML imports.
+#
+# The copy helpers below used to assume the layout of Qt's own archives, where
+# QT_DEPLOY is <prefix>/bin and everything else sits beside it in ../lib,
+# ../plugins and ../qml. A distribution Qt does not look like that: Ubuntu's,
+# with qt-dir=/usr, keeps the libraries in /usr/lib/<multiarch> and the plugins
+# and imports under /usr/lib/<multiarch>/qt5. Every copy then looked in the wrong
+# place, found nothing and said nothing, and the Linux arm64 2026.3.1 payload came
+# out without a single Qt library - visible only when it would not start on a
+# machine without a system Qt.
+#
+# So: look where we always looked first, so any layout that works today copies
+# exactly what it copied before; then ask qmake, which knows where its own Qt is
+# installed whatever the layout. Paths qmake reports that do not exist (a Qt moved
+# after it was built) are ignored.
+_qt_query_cache = {}
+
+def qt_qmake():
+  deploy = get_env("QT_DEPLOY")
+  exe = ".exe" if ("windows" == host_platform()) else ""
+  for candidate in [deploy + "/qmake" + exe, deploy + "/bin/qmake" + exe]:
+    if is_file(candidate):
+      return candidate
+  return ""
+
+def qt_query(name):
+  qmake = qt_qmake()
+  key = qmake + "|" + name
+  if key not in _qt_query_cache:
+    value = ""
+    if qmake:
+      value = run_command("\"" + qmake + "\" -query " + name)['stdout'].strip().replace("\\", "/")
+    _qt_query_cache[key] = value
+  return _qt_query_cache[key]
+
+def qt_install_dirs(kind):
+  """Candidate directories for "lib", "plugins" or "qml", most-trusted first."""
+  dirs = [get_env("QT_DEPLOY") + "/../" + kind]
+  queried = qt_query({"lib": "QT_INSTALL_LIBS", "plugins": "QT_INSTALL_PLUGINS", "qml": "QT_INSTALL_QML"}[kind])
+  if queried and is_dir(queried) and (queried not in dirs):
+    dirs.append(queried)
+  return dirs
+
 def qt_copy_lib(lib, dir):
   qt_dir = get_env("QT_DEPLOY")
 
@@ -999,16 +1042,25 @@ def qt_copy_lib(lib, dir):
     else:
       copy_lib(qt_dir, dir, lib + "d")
   else:
-    src_file = qt_dir + "/../lib/lib" + lib + ".so." + qt_version()
-    if (is_file(src_file)):
-      copy_file(src_file, dir + "/lib" + lib + ".so." + qt_major)
-    else:
-      libFramework = lib
-      libFramework = libFramework.replace("Qt5", "Qt")
-      libFramework = libFramework.replace("Qt6", "Qt")
-      libFramework += ".framework"
-      if (is_dir(qt_dir + "/../lib/" + libFramework)):
-        copy_dir(qt_dir + "/../lib/" + libFramework, dir + "/" + libFramework)
+    libFramework = lib
+    libFramework = libFramework.replace("Qt5", "Qt")
+    libFramework = libFramework.replace("Qt6", "Qt")
+    libFramework += ".framework"
+    for lib_dir in qt_install_dirs("lib"):
+      src_file = lib_dir + "/lib" + lib + ".so." + qt_version()
+      if (is_file(src_file)):
+        copy_file(src_file, dir + "/lib" + lib + ".so." + qt_major)
+        return
+      if (is_dir(lib_dir + "/" + libFramework)):
+        copy_dir(lib_dir + "/" + libFramework, dir + "/" + libFramework)
+        return
+    searched = ", ".join(qt_install_dirs("lib"))
+    # Without QtCore nothing else matters: the payload cannot start anywhere but
+    # on a machine that happens to have the same Qt installed. Stop the build
+    # here rather than package it.
+    if lib in ["Qt5Core", "Qt6Core"]:
+      raise Exception("Qt deploy: lib" + lib + ".so." + qt_version() + " not found (searched " + searched + "). The Qt in qt-dir is not laid out the way this build expects; check qt-dir.")
+    print("Qt deploy WARNING [not found]: lib" + lib + ".so." + qt_version() + " (searched " + searched + ")")
   return
 
 def _check_icu_common(dir, out):
@@ -1027,7 +1079,7 @@ def _check_icu_common(dir, out):
   return isExist
 
 def qt_copy_icu(out, platform):
-  tests = [get_env("QT_DEPLOY") + "/../lib"]
+  tests = qt_install_dirs("lib")
   prefix = ""
   postfixes = [""]
 
@@ -1056,9 +1108,11 @@ def qt_copy_icu(out, platform):
   return False
 
 def qt_copy_plugin(name, out):
-  src = get_env("QT_DEPLOY") + "/../plugins/" + name
-  if not is_dir(src):
+  found = [d + "/" + name for d in qt_install_dirs("plugins") if is_dir(d + "/" + name)]
+  if not found:
+    print("Qt deploy WARNING [not found]: plugins/" + name + " (searched " + ", ".join(qt_install_dirs("plugins")) + ")")
     return
+  src = found[0]
 
   copy_dir(src, out + "/" + name)
 
@@ -1082,9 +1136,11 @@ def qt_copy_qml(name, out):
   Shipping the Qt Quick libraries without this tree gets a plugin that loads and then
   fails at its first import; main.cpp points QML2_IMPORT_PATH here.
   """
-  src = get_env("QT_DEPLOY") + "/../qml/" + name
-  if not is_dir(src):
+  found = [d + "/" + name for d in qt_install_dirs("qml") if is_dir(d + "/" + name)]
+  if not found:
+    print("Qt deploy WARNING [not found]: qml/" + name + " (searched " + ", ".join(qt_install_dirs("qml")) + ")")
     return
+  src = found[0]
 
   copy_dir(src, out + "/qml/" + name)
 
